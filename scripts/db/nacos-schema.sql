@@ -1,0 +1,239 @@
+-- ============================================================
+-- Nacos 3.2.x MySQL 建表脚本
+-- 来源: https://github.com/alibaba/nacos/blob/master/distribution/conf/mysql-schema.sql
+-- 说明: Nacos 3.2.x 启动依赖这些表，MySQL 容器首次启动时自动按字母顺序执行
+--       nacos-schema.sql 排在 init.sql 之前执行
+-- ============================================================
+
+CREATE DATABASE IF NOT EXISTS `nacos_db`
+    DEFAULT CHARACTER SET utf8mb4
+    DEFAULT COLLATE utf8mb4_unicode_ci;
+
+-- 授予 mediation 用户访问 nacos_db 的权限（MySQL 容器启动时通过 MYSQL_USER 创建的用户默认只有 MYSQL_DATABASE 的权限）
+GRANT ALL PRIVILEGES ON `nacos_db`.* TO 'mediation'@'%';
+FLUSH PRIVILEGES;
+
+USE `nacos_db`;
+
+/* 表名称 = config_info */
+CREATE TABLE IF NOT EXISTS `config_info` (
+    `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+    `group_id` varchar(128) DEFAULT NULL COMMENT 'group_id',
+    `content` longtext NOT NULL COMMENT 'content',
+    `md5` varchar(32) DEFAULT NULL COMMENT 'md5',
+    `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    `src_user` text COMMENT 'source user',
+    `src_ip` varchar(50) DEFAULT NULL COMMENT 'source ip',
+    `app_name` varchar(128) DEFAULT NULL COMMENT 'app_name',
+    `tenant_id` varchar(128) DEFAULT '' COMMENT '租户字段',
+    `c_desc` varchar(256) DEFAULT NULL COMMENT 'configuration description',
+    `c_use` varchar(64) DEFAULT NULL COMMENT 'configuration usage',
+    `effect` varchar(64) DEFAULT NULL COMMENT '配置生效的描述',
+    `type` varchar(64) DEFAULT NULL COMMENT '配置的类型',
+    `c_schema` text COMMENT '配置的模式',
+    `encrypted_data_key` varchar(1024) NOT NULL DEFAULT '' COMMENT '密钥',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_configinfo_datagrouptenant` (`data_id`,`group_id`,`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='config_info';
+
+/* 表名称 = config_info_gray (since 2.5.0) */
+CREATE TABLE IF NOT EXISTS `config_info_gray` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+    `group_id` varchar(128) NOT NULL COMMENT 'group_id',
+    `content` longtext NOT NULL COMMENT 'content',
+    `md5` varchar(32) DEFAULT NULL COMMENT 'md5',
+    `src_user` text COMMENT 'src_user',
+    `src_ip` varchar(100) DEFAULT NULL COMMENT 'src_ip',
+    `gmt_create` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT 'gmt_create',
+    `gmt_modified` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT 'gmt_modified',
+    `app_name` varchar(128) DEFAULT NULL COMMENT 'app_name',
+    `tenant_id` varchar(128) DEFAULT '' COMMENT 'tenant_id',
+    `gray_name` varchar(128) NOT NULL COMMENT 'gray_name',
+    `gray_rule` text NOT NULL COMMENT 'gray_rule',
+    `encrypted_data_key` varchar(256) NOT NULL DEFAULT '' COMMENT 'encrypted_data_key',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_configinfogray_datagrouptenantgray` (`data_id`,`group_id`,`tenant_id`,`gray_name`),
+    KEY `idx_dataid_gmt_modified` (`data_id`,`gmt_modified`),
+    KEY `idx_gmt_modified` (`gmt_modified`)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='config_info_gray';
+
+/* 表名称 = config_tags_relation */
+CREATE TABLE IF NOT EXISTS `config_tags_relation` (
+    `id` bigint(20) NOT NULL COMMENT 'id',
+    `tag_name` varchar(128) NOT NULL COMMENT 'tag_name',
+    `tag_type` varchar(64) DEFAULT NULL COMMENT 'tag_type',
+    `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+    `group_id` varchar(128) NOT NULL COMMENT 'group_id',
+    `tenant_id` varchar(128) DEFAULT '' COMMENT 'tenant_id',
+    `nid` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'nid, 自增长标识',
+    PRIMARY KEY (`nid`),
+    UNIQUE KEY `uk_configtagrelation_configidtag` (`id`,`tag_name`,`tag_type`),
+    KEY `idx_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='config_tag_relation';
+
+/* 表名称 = group_capacity */
+CREATE TABLE IF NOT EXISTS `group_capacity` (
+    `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `group_id` varchar(128) NOT NULL DEFAULT '' COMMENT 'Group ID，空字符表示整个集群',
+    `quota` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '配额，0表示使用默认值',
+    `usage` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '使用量',
+    `max_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个配置大小上限，单位为字节，0表示使用默认值',
+    `max_aggr_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '聚合子配置最大个数，0表示使用默认值',
+    `max_aggr_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个聚合数据的子配置大小上限，单位为字节，0表示使用默认值',
+    `max_history_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '最大变更历史数量',
+    `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_group_id` (`group_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='集群各Group容量信息表';
+
+/* 表名称 = his_config_info */
+CREATE TABLE IF NOT EXISTS `his_config_info` (
+    `id` bigint(20) unsigned NOT NULL COMMENT 'id',
+    `nid` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT 'nid, 自增标识',
+    `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+    `group_id` varchar(128) NOT NULL COMMENT 'group_id',
+    `app_name` varchar(128) DEFAULT NULL COMMENT 'app_name',
+    `content` longtext NOT NULL COMMENT 'content',
+    `md5` varchar(32) DEFAULT NULL COMMENT 'md5',
+    `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+    `src_user` text COMMENT 'source user',
+    `src_ip` varchar(50) DEFAULT NULL COMMENT 'source ip',
+    `op_type` char(10) DEFAULT NULL COMMENT 'operation type',
+    `tenant_id` varchar(128) DEFAULT '' COMMENT '租户字段',
+    `encrypted_data_key` varchar(1024) NOT NULL DEFAULT '' COMMENT '密钥',
+    `publish_type` varchar(50) DEFAULT 'formal' COMMENT 'publish type gray or formal',
+    `gray_name` varchar(50) DEFAULT NULL COMMENT 'gray name',
+    `ext_info` longtext DEFAULT NULL COMMENT 'ext info',
+    PRIMARY KEY (`nid`),
+    KEY `idx_gmt_create` (`gmt_create`),
+    KEY `idx_gmt_modified` (`gmt_modified`),
+    KEY `idx_did` (`data_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='多租户改造';
+
+/* 表名称 = tenant_capacity */
+CREATE TABLE IF NOT EXISTS `tenant_capacity` (
+    `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `tenant_id` varchar(128) NOT NULL DEFAULT '' COMMENT 'Tenant ID',
+    `quota` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '配额，0表示使用默认值',
+    `usage` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '使用量',
+    `max_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个配置大小上限，单位为字节，0表示使用默认值',
+    `max_aggr_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '聚合子配置最大个数',
+    `max_aggr_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个聚合数据的子配置大小上限，单位为字节，0表示使用默认值',
+    `max_history_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '最大变更历史数量',
+    `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户容量信息表';
+
+/* 表名称 = tenant_info */
+CREATE TABLE IF NOT EXISTS `tenant_info` (
+    `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `kp` varchar(128) NOT NULL COMMENT 'kp',
+    `tenant_id` varchar(128) DEFAULT '' COMMENT 'tenant_id',
+    `tenant_name` varchar(128) DEFAULT '' COMMENT 'tenant_name',
+    `tenant_desc` varchar(256) DEFAULT NULL COMMENT 'tenant_desc',
+    `create_source` varchar(32) DEFAULT NULL COMMENT 'create_source',
+    `gmt_create` bigint(20) NOT NULL COMMENT '创建时间',
+    `gmt_modified` bigint(20) NOT NULL COMMENT '修改时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_tenant_info_kptenantid` (`kp`,`tenant_id`),
+    KEY `idx_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='tenant_info';
+
+/* 表名称 = users (Nacos 控制台登录用户) */
+CREATE TABLE IF NOT EXISTS `users` (
+    `username` varchar(50) NOT NULL PRIMARY KEY COMMENT 'username',
+    `password` varchar(500) NOT NULL COMMENT 'password',
+    `enabled` boolean NOT NULL COMMENT 'enabled'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Nacos 用户表';
+
+/* 表名称 = roles */
+CREATE TABLE IF NOT EXISTS `roles` (
+    `username` varchar(50) NOT NULL COMMENT 'username',
+    `role` varchar(50) NOT NULL COMMENT 'role',
+    UNIQUE INDEX `idx_user_role` (`username`, `role`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Nacos 角色表';
+
+/* 表名称 = permissions */
+CREATE TABLE IF NOT EXISTS `permissions` (
+    `role` varchar(50) NOT NULL COMMENT 'role',
+    `resource` varchar(128) NOT NULL COMMENT 'resource',
+    `action` varchar(8) NOT NULL COMMENT 'action',
+    UNIQUE INDEX `uk_role_permission` (`role`,`resource`,`action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Nacos 权限表';
+
+/* 初始化 Nacos 控制台管理员账号 (用户名: nacos / 密码: nacos) */
+INSERT INTO `users` (`username`, `password`, `enabled`) VALUES ('nacos', '$2a$10$EuWPZHzz32dJN7jexM34MOeYirDdFAZm2kuWj7VEOJhhZkDrxfvUu', 1);
+INSERT INTO `roles` (`username`, `role`) VALUES ('nacos', 'ROLE_ADMIN');
+
+/* ============================================================
+   Nacos 3.2.0+ AI 相关表 (必须创建，AI Registry 功能依赖)
+   来源: https://nacos.io/en/docs/latest/manual/admin/upgrading/
+   ============================================================ */
+
+/* AI资源发布审核Pipeline执行记录 */
+CREATE TABLE IF NOT EXISTS `pipeline_execution` (
+    `execution_id`  varchar(64)  NOT NULL COMMENT '执行ID',
+    `resource_type` varchar(32)  NOT NULL COMMENT '资源类型',
+    `resource_name` varchar(256) NOT NULL COMMENT '资源名称',
+    `namespace_id`  varchar(128) DEFAULT NULL COMMENT '命名空间ID',
+    `version`       varchar(64)  DEFAULT NULL COMMENT '版本',
+    `status`        varchar(32)  NOT NULL COMMENT '执行状态',
+    `pipeline`      longtext     NOT NULL COMMENT 'pipeline节点结果JSON',
+    `create_time`   bigint(20)   NOT NULL COMMENT '创建时间',
+    `update_time`   bigint(20)   NOT NULL COMMENT '修改时间',
+    PRIMARY KEY (`execution_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI资源发布审核Pipeline执行记录';
+
+/* AI资源元数据表 */
+CREATE TABLE IF NOT EXISTS `ai_resource` (
+    `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+    `name` varchar(256) NOT NULL COMMENT '资源名称',
+    `type` varchar(32) NOT NULL COMMENT '资源类型',
+    `c_desc` varchar(2048) DEFAULT NULL COMMENT '资源描述',
+    `status` varchar(32) DEFAULT NULL COMMENT '资源状态',
+    `namespace_id` varchar(128) NOT NULL DEFAULT '' COMMENT '命名空间ID',
+    `biz_tags` varchar(1024) DEFAULT NULL COMMENT '业务标签',
+    `ext` longtext DEFAULT NULL COMMENT '扩展信息(JSON)',
+    `c_from` varchar(256) NOT NULL DEFAULT 'local' COMMENT '来源标识(导入/同步来源)',
+    `version_info` longtext DEFAULT NULL COMMENT '版本信息(JSON)',
+    `meta_version` bigint(20) NOT NULL DEFAULT 1 COMMENT '元数据版本(乐观锁)',
+    `scope` varchar(16) NOT NULL DEFAULT 'PRIVATE' COMMENT '可见性: PUBLIC/PRIVATE',
+    `owner` varchar(128) NOT NULL DEFAULT '' COMMENT '创建者用户名',
+    `download_count` bigint(20) NOT NULL DEFAULT 0 COMMENT '下载次数',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_ai_resource_ns_name_type` (`namespace_id`,`name`,`type`,`c_from`),
+    KEY `idx_ai_resource_name` (`name`),
+    KEY `idx_ai_resource_type` (`type`),
+    KEY `idx_ai_resource_gmt_modified` (`gmt_modified`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI资源元数据表';
+
+/* AI资源版本表 */
+CREATE TABLE IF NOT EXISTS `ai_resource_version` (
+    `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+    `type` varchar(32) NOT NULL COMMENT '资源类型',
+    `author` varchar(128) DEFAULT NULL COMMENT '作者',
+    `name` varchar(256) NOT NULL COMMENT '资源名称',
+    `c_desc` varchar(2048) DEFAULT NULL COMMENT '版本描述',
+    `status` varchar(32) NOT NULL COMMENT '版本状态',
+    `version` varchar(64) NOT NULL COMMENT '版本号',
+    `namespace_id` varchar(128) NOT NULL DEFAULT '' COMMENT '命名空间ID',
+    `storage` longtext DEFAULT NULL COMMENT '存储信息(JSON)',
+    `publish_pipeline_info` longtext DEFAULT NULL COMMENT '发布流水线信息(JSON)',
+    `download_count` bigint(20) NOT NULL DEFAULT 0 COMMENT '下载次数',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_ai_resource_ver_ns_name_type_ver` (`namespace_id`,`name`,`type`,`version`),
+    KEY `idx_ai_resource_ver_name` (`name`),
+    KEY `idx_ai_resource_ver_status` (`status`),
+    KEY `idx_ai_resource_ver_gmt_modified` (`gmt_modified`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI资源版本表';
