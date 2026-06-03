@@ -16,10 +16,23 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# 加载 Docker 兼容性函数
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../infra/docker-compat.sh" 2>/dev/null || {
+    # 如果加载失败，内联兼容性代码
+    export DOCKER_API_VERSION=1.44
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE="docker compose"
+    fi
+}
+
 # 默认配置
 INFRA_VERSION=${1:-mysql-neo4j}
 APP_MODE=${2:-single}
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")"
 VERSION_DIR="$APP_DIR/versions/$INFRA_VERSION/$APP_MODE"
 
@@ -38,11 +51,11 @@ check_infrastructure() {
     echo -e "${BLUE}检查基础设施服务...${NC}"
     
     # 检查 Docker 网络
-    if docker network ls | grep -q "mediation-infra-network"; then
+    if $DOCKER_COMPOSE network ls | grep -q "mediation-infra-network"; then
         echo -e "${GREEN}✓ 基础设施网络已创建${NC}"
     else
         echo -e "${YELLOW}⚠ 基础设施网络不存在，请先启动基础设施服务${NC}"
-        echo "提示: cd ../../infra/versions/$INFRA_VERSION/$APP_MODE && docker compose up -d"
+        echo "提示: cd ../../infra/versions/$INFRA_VERSION/$APP_MODE && $DOCKER_COMPOSE up -d"
     fi
     
     # 检查必要的端口
@@ -85,8 +98,8 @@ prepare_env() {
 setup_network() {
     echo -e "${BLUE}配置 Docker 网络...${NC}"
     
-    if ! docker network ls | grep -q "mediation-app-network"; then
-        docker network create mediation-app-network 2>/dev/null || true
+    if ! $DOCKER_COMPOSE network ls | grep -q "mediation-app-network"; then
+        $DOCKER_COMPOSE network create mediation-app-network 2>/dev/null || true
         echo -e "${GREEN}✓ 创建应用网络: mediation-app-network${NC}"
     else
         echo -e "${GREEN}✓ 应用网络已存在${NC}"
@@ -121,7 +134,7 @@ start_services() {
     fi
     
     # 启动服务
-    docker compose up -d
+    $DOCKER_COMPOSE up -d
     
     echo ""
     echo -e "${GREEN}========================================${NC}"
@@ -134,7 +147,7 @@ show_status() {
     echo ""
     echo -e "${BLUE}服务状态:${NC}"
     cd "$VERSION_DIR"
-    docker compose ps 2>/dev/null || echo "无法获取服务状态"
+    $DOCKER_COMPOSE ps 2>/dev/null || echo "无法获取服务状态"
 }
 
 # 显示访问信息

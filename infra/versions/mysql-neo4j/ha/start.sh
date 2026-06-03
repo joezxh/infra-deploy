@@ -8,6 +8,19 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 兼容旧版 Docker 客户端
+export DOCKER_API_VERSION=1.44
+
+# 检测 docker compose 命令 (兼容 V1 和 V2)
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    echo "错误: 未找到 docker compose 或 docker-compose 命令"
+    exit 1
+fi
+
 echo ""
 echo "=============================================="
 echo "  MySQL + Neo4j 高可用集群部署"
@@ -20,9 +33,13 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
+echo "使用 Docker Compose 命令: $DOCKER_COMPOSE"
+echo "Docker API Version: $DOCKER_API_VERSION"
+echo ""
+
 # 启动服务
 echo "启动服务..."
-docker compose up -d
+$DOCKER_COMPOSE up -d
 
 # 等待启动
 echo "等待服务启动..."
@@ -31,7 +48,7 @@ sleep 10
 # 显示状态
 echo ""
 echo "服务状态:"
-docker compose ps
+$DOCKER_COMPOSE ps
 
 echo ""
 echo "=============================================="
@@ -47,6 +64,6 @@ echo "  Neo4j HAProxy:  localhost:7689 (Bolt), 7476 (HTTP)"
 echo "  MinIO:          http://localhost:9000"
 echo "  HAProxy Admin:  localhost:8404"
 echo ""
-echo "停止服务: docker compose down"
-echo "查看日志: docker compose logs -f"
+echo "停止服务: $DOCKER_COMPOSE down"
+echo "查看日志: $DOCKER_COMPOSE logs -f"
 echo ""

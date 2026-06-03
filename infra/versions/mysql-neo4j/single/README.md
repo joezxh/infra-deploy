@@ -6,11 +6,13 @@
 
 | 组件 | 版本 | 端口 | 说明 |
 |------|------|------|------|
-| MySQL | 8.4.0 | 3306 | 主关系数据库 |
-| Redis | 7.4 | 6379 | 缓存 |
+| MySQL | 8.4.0 | 3308 | 主关系数据库 |
+| Redis | 7.4 | 6380 | 缓存 |
 | Nacos | 3.2.1 | 8848 | 配置中心 |
-| Neo4j | 5.22 | 7474/7687 | 图数据库 (HTTP/Bolt) |
-| MinIO | Latest | 9000/9001 | 对象存储 |
+| Neo4j | 5.22 | 7476/7689 | 图数据库 (HTTP/Bolt) |
+| MinIO | Latest | 9004/9001 | 对象存储 (API/Console) |
+
+> 注意: 由于 Docker Desktop 占用部分默认端口，本配置使用了替代端口。如需使用默认端口，请停止 Docker Desktop 后重新部署。
 
 ## 快速启动
 
@@ -30,12 +32,12 @@ docker compose up -d
 
 | 服务 | 地址 | 凭证 |
 |------|------|------|
-| MySQL | localhost:3306 | root / mediation123 |
-| Redis | localhost:6379 | 无 |
+| MySQL | localhost:3308 | root / mediation123 |
+| Redis | localhost:6380 | 无 |
 | Nacos | http://localhost:8848/nacos | nacos / nacos |
-| Neo4j HTTP | http://localhost:7474 | neo4j / mediation123 |
-| Neo4j Bolt | bolt://localhost:7687 | neo4j / mediation123 |
-| MinIO | http://localhost:9000 | mediation / mediation123456 |
+| Neo4j HTTP | http://localhost:7476 | neo4j / mediation123 |
+| Neo4j Bolt | bolt://localhost:7689 | neo4j / mediation123 |
+| MinIO Console | http://localhost:9001 | mediation / mediation123456 |
 
 ## 停止服务
 
@@ -55,9 +57,18 @@ docker compose logs -f neo4j
 创建 `.env` 文件覆盖默认配置:
 
 ```env
+MYSQL_PORT=3308
+REDIS_PORT=6380
+NACOS_PORT=8848
+NACOS_GRPC_PORT=9848
+NEO4J_BOLT_PORT=7689
+NEO4J_HTTP_PORT=7476
+MINIO_API_PORT=9004
+MINIO_CONSOLE_PORT=9001
+NGINX_HTTP_PORT=8081
+
 MYSQL_ROOT_PASSWORD=your_password
 MYSQL_PASSWORD=your_password
-REDIS_PASSWORD=redis123
 NACOS_AUTH_ENABLE=false
 NEO4J_PASSWORD=your_password
 ```

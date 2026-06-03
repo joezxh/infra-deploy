@@ -8,6 +8,18 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 加载 Docker 兼容性函数
+source "$SCRIPT_DIR/docker-compat.sh" 2>/dev/null || {
+    export DOCKER_API_VERSION=1.44
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE="docker compose"
+    fi
+}
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -30,10 +42,9 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker compose &> /dev/null; then
-    log_error "Docker Compose 未安装"
-    exit 1
-fi
+log_info "Docker API Version: $DOCKER_API_VERSION"
+log_info "Docker Compose 命令: $DOCKER_COMPOSE"
+echo ""
 
 # 检查环境变量文件
 if [ ! -f ".env" ]; then
@@ -44,7 +55,7 @@ fi
 
 # 启动服务
 log_info "启动 PostgreSQL 版本基础设施..."
-docker compose -f docker-compose.pg.single.yml up -d
+$DOCKER_COMPOSE -f docker-compose.pg.single.yml up -d
 
 # 等待服务启动
 sleep 5
@@ -52,7 +63,7 @@ sleep 5
 # 检查状态
 echo ""
 log_info "服务状态:"
-docker compose -f docker-compose.pg.single.yml ps
+$DOCKER_COMPOSE -f docker-compose.pg.single.yml ps
 
 echo ""
 echo "=============================================="

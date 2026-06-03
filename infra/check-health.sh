@@ -6,6 +6,18 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 加载 Docker 兼容性函数
+source "$SCRIPT_DIR/docker-compat.sh" 2>/dev/null || {
+    export DOCKER_API_VERSION=1.44
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE="docker compose"
+    fi
+}
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -37,7 +49,7 @@ echo ""
 # 检查 Docker 容器状态
 echo "容器状态:"
 echo "----------------------------------------------"
-docker compose -f docker-compose.single.yml ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
+$DOCKER_COMPOSE -f docker-compose.single.yml ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
 docker ps --filter "name=mediation-" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || \
 echo "  (单机模式容器)"
 
@@ -88,6 +100,6 @@ if [ $UNHEALTHY -eq 0 ]; then
 else
     echo -e "${YELLOW}部分服务可能需要关注${NC}"
     echo ""
-    echo "查看日志: docker compose -f docker-compose.single.yml logs -f [service-name]"
+    echo "查看日志: $DOCKER_COMPOSE -f docker-compose.single.yml logs -f [service-name]"
     exit 1
 fi

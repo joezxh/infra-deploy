@@ -21,7 +21,7 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ../scripts/db:/docker-entrypoint-initdb.d:ro
+      - ./db:/docker-entrypoint-initdb.d:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -43,15 +43,20 @@ services:
     image: redis:7.4-alpine
     container_name: mediation-redis
     restart: unless-stopped
+    environment:
+      REDIS_REPLICATION_MODE: master
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command:
       - redis-server
-      - --maxmemory=${REDIS_MAXMEMORY:-512mb}
-      - --maxmemory-policy=allkeys-lru
-      - --appendonly=yes
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - yes
     networks:
       - mediation-net
     healthcheck:
@@ -77,6 +82,10 @@ services:
       MYSQL_SERVICE_PASSWORD: ${MYSQL_PASSWORD:-mediation123}
       MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
       NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-false}
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-OSLWtE3rb28I/22RVKymUPDuaHWLGyYCDCi2qJ+fFB0=}
+      NACOS_AUTH_CACHE_ENABLED: ${NACOS_AUTH_CACHE_ENABLED:-false}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-Y2xvdWRfbmFjb3NfY29uZmlndXJhdGlvbl9rZXlfMjAyNQ==}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-Y2xvdWRfbmFjb3NfY29uZmlndXJhdGlvbl92YWx1ZV8yMDI1}
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-1024m}
     ports:
@@ -91,7 +100,7 @@ services:
     networks:
       - mediation-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/ns/operator/metrics"]
       interval: 15s
       timeout: 10s
       retries: 10

@@ -13,6 +13,19 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# 加载 Docker 兼容性函数
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../infra/docker-compat.sh" 2>/dev/null || {
+    export DOCKER_API_VERSION=1.44
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE="docker compose"
+    fi
+}
+
 # 服务列表
 SERVICES=(
     "gateway:8080:Gateway API"
@@ -152,7 +165,7 @@ show_containers() {
     echo "----------------------------------------"
     
     cd "$VERSION_DIR" 2>/dev/null || exit 1
-    docker compose ps
+    $DOCKER_COMPOSE ps
 }
 
 # 主流程

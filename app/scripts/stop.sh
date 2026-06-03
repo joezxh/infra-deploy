@@ -13,10 +13,22 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# 加载 Docker 兼容性函数
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../infra/docker-compat.sh" 2>/dev/null || {
+    export DOCKER_API_VERSION=1.44
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE="docker compose"
+    fi
+}
+
 # 默认配置
 INFRA_VERSION=${1:-mysql-neo4j}
 APP_MODE=${2:-single}
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")"
 VERSION_DIR="$APP_DIR/versions/$INFRA_VERSION/$APP_MODE"
 
@@ -28,7 +40,7 @@ stop_services() {
     echo ""
     
     cd "$VERSION_DIR"
-    docker compose down
+    $DOCKER_COMPOSE down
     
     echo ""
     echo -e "${GREEN}========================================${NC}"
@@ -41,7 +53,7 @@ cleanup_network() {
     read -p "是否清理应用网络? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker network rm mediation-app-network 2>/dev/null || true
+        $DOCKER_COMPOSE network rm mediation-app-network 2>/dev/null || true
         echo -e "${GREEN}✓ 应用网络已清理${NC}"
     fi
 }
@@ -51,7 +63,7 @@ cleanup_volumes() {
     read -p "是否清理应用数据卷? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker volume rm mediation-video-data mediation-web-logs 2>/dev/null || true
+        $DOCKER_COMPOSE volume rm mediation-video-data mediation-web-logs 2>/dev/null || true
         echo -e "${GREEN}✓ 应用数据卷已清理${NC}"
     fi
 }
@@ -64,7 +76,7 @@ main() {
     
     cd "$VERSION_DIR"
     
-    if docker compose ps | grep -q "Up"; then
+    if $DOCKER_COMPOSE ps | grep -q "Up"; then
         stop_services
         cleanup_network
     else
