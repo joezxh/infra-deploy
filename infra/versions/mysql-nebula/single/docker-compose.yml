@@ -83,7 +83,7 @@ services:
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
       NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE: ${NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE:-false}
       SPRING_CONFIG_ADDITIONAL_LOCATION: /home/nacos/conf/override/
-      SPRING_APPLICATION_JSON: '{"nacos":{"config":{"namespace":{"compatible":{"mode":false}}}},"db":{"num":1,"url":{"0":"jdbc:mysql://mysql:3306/nacos_db?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true"},"user":{"0":"mediation"},"password":{"0":"mediation123"}}}'
+      SPRING_APPLICATION_JSON: '{"nacos":{"config":{"namespace":{"compatible":{"mode":false}}}},"db":{"num":1,"url":{"0":"jdbc:mysql://192.168.100.232:3306/nacos_db?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true"},"user":{"0":"mediation"},"password":{"0":"mediation123"}}}'
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-1024m}
     ports:
