@@ -1,0 +1,551 @@
+# ============================================================
+# PostgreSQL + NebulaGraph 高可用集群部署
+# 使用: docker compose up -d
+# ============================================================
+
+services:
+  # ============================================================
+  # PostgreSQL Patroni HA 集群
+  # ============================================================
+  postgres-1:
+    image: bitnami/patroni:17
+    container_name: mediation-postgres-1
+    restart: always
+    environment:
+      PATRONI_SCOPE: mediation-pg-cluster
+      PATRONI_NAME: postgres-1
+      PATRONI_SUPERUSER_USERNAME: ${PG_USER:-mediation}
+      PATRONI_SUPERUSER_PASSWORD: ${PG_PASSWORD:-mediation123}
+      PATRONI_REPLICATION_USERNAME: repl_user
+      PATRONI_REPLICATION_PASSWORD: ${PG_REPL_PASSWORD:-repl123456}
+      PATRONI_POSTGRES_PASSWORD: ${PG_PASSWORD:-mediation123}
+      PATRONI_LOG_LEVEL: INFO
+      PATRONI_api_port: 8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: postgres-1:8008
+      PATRONI_POSTGRES_DATA_DIR: /bitnami/postgresql/data
+      PATRONI_KONSENSUS_HOST: postgres-1:2379
+      POSTGRES_EXTRA_FLAGS: "-c shared_preload_libraries=vector"
+    ports:
+      - "${PG_PORT:-5432}:5432"
+      - "${PG_API_PORT:-8008}:8008"
+    volumes:
+      - postgres_data1:/bitnami/postgresql/data
+    networks:
+      - mediation-cluster
+    command: run
+
+  postgres-2:
+    image: bitnami/patroni:17
+    container_name: mediation-postgres-2
+    restart: always
+    environment:
+      PATRONI_SCOPE: mediation-pg-cluster
+      PATRONI_NAME: postgres-2
+      PATRONI_SUPERUSER_USERNAME: ${PG_USER:-mediation}
+      PATRONI_SUPERUSER_PASSWORD: ${PG_PASSWORD:-mediation123}
+      PATRONI_REPLICATION_USERNAME: repl_user
+      PATRONI_REPLICATION_PASSWORD: ${PG_REPL_PASSWORD:-repl123456}
+      PATRONI_POSTGRES_PASSWORD: ${PG_PASSWORD:-mediation123}
+      PATRONI_LOG_LEVEL: INFO
+      PATRONI_api_port: 8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: postgres-2:8008
+      PATRONI_POSTGRES_DATA_DIR: /bitnami/postgresql/data
+      PATRONI_KONSENSUS_HOST: postgres-2:2379
+      POSTGRES_EXTRA_FLAGS: "-c shared_preload_libraries=vector"
+    ports:
+      - "${PG_PORT_2:-5433}:5432"
+      - "${PG_API_PORT_2:-8009}:8008"
+    volumes:
+      - postgres_data2:/bitnami/postgresql/data
+    networks:
+      - mediation-cluster
+    command: run
+
+  postgres-3:
+    image: bitnami/patroni:17
+    container_name: mediation-postgres-3
+    restart: always
+    environment:
+      PATRONI_SCOPE: mediation-pg-cluster
+      PATRONI_NAME: postgres-3
+      PATRONI_SUPERUSER_USERNAME: ${PG_USER:-mediation}
+      PATRONI_SUPERUSER_PASSWORD: ${PG_PASSWORD:-mediation123}
+      PATRONI_REPLICATION_USERNAME: repl_user
+      PATRONI_REPLICATION_PASSWORD: ${PG_REPL_PASSWORD:-repl123456}
+      PATRONI_POSTGRES_PASSWORD: ${PG_PASSWORD:-mediation123}
+      PATRONI_LOG_LEVEL: INFO
+      PATRONI_api_port: 8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: postgres-3:8008
+      PATRONI_POSTGRES_DATA_DIR: /bitnami/postgresql/data
+      PATRONI_KONSENSUS_HOST: postgres-3:2379
+      POSTGRES_EXTRA_FLAGS: "-c shared_preload_libraries=vector"
+    ports:
+      - "${PG_PORT_3:-5434}:5432"
+      - "${PG_API_PORT_3:-8010}:8008"
+    volumes:
+      - postgres_data3:/bitnami/postgresql/data
+    networks:
+      - mediation-cluster
+    command: run
+
+  # etcd 分布式协调
+  etcd:
+    image: bitnami/etcd:3.5
+    container_name: mediation-etcd
+    restart: always
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+    ports:
+      - "${ETCD_PORT:-2379}:2379"
+    volumes:
+      - etcd_data:/bitnami/etcd
+    networks:
+      - mediation-cluster
+
+  # PgBouncer 连接池
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: mediation-pgbouncer
+    restart: always
+    environment:
+      DATABASE_URL: "host=postgres-1 port=5432 dbname=mediation_db user=${PG_USER:-mediation} password=${PG_PASSWORD:-mediation123}"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+    ports:
+      - "${PGBOUNCER_PORT:-5435}:5432"
+    depends_on:
+      - postgres-1
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # Redis Sentinel 高可用
+  # ============================================================
+  redis-master:
+    image: redis:7.4-alpine
+    container_name: mediation-redis-master
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_master_data:/data
+    command:
+      - redis-server
+      - --requirepass ${REDIS_PASSWORD:-redis123}
+      - --masterauth ${REDIS_PASSWORD:-redis123}
+      - --appendonly=yes
+      - --maxmemory=1gb
+      - --maxmemory-policy=allkeys-lru
+    networks:
+      - mediation-cluster
+
+  redis-replica:
+    image: redis:7.4-alpine
+    container_name: mediation-redis-replica
+    restart: always
+    ports:
+      - "${REDIS_PORT_2:-6380}:6379"
+    volumes:
+      - redis_replica_data:/data
+    command:
+      - redis-server
+      - --requirepass ${REDIS_PASSWORD:-redis123}
+      - --masterauth ${REDIS_PASSWORD:-redis123}
+      - --replicaof redis-master 6379
+      - --appendonly=yes
+    depends_on:
+      - redis-master
+    networks:
+      - mediation-cluster
+
+  redis-sentinel:
+    image: redis:7.4-alpine
+    container_name: mediation-redis-sentinel
+    restart: always
+    ports:
+      - "${REDIS_SENTINEL_PORT:-26379}:26379"
+    command: >
+      redis-server
+      --sentinel monitor mediation-master redis-master 6379 2
+      --sentinel down-after-milliseconds mediation-master 5000
+      --sentinel failover-timeout mediation-master 10000
+      --sentinel parallel-syncs mediation-master 1
+      --sentinel auth-pass mediation-master ${REDIS_PASSWORD:-redis123}
+    depends_on:
+      - redis-master
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # Nacos 集群
+  # ============================================================
+  nacos-1:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos-1
+    restart: always
+    environment:
+      MODE: cluster
+      NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
+      SPRING_DATASOURCE_PLATFORM: postgresql
+      MYSQL_SERVICE_HOST: pgbouncer
+      MYSQL_SERVICE_PORT: 5432
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${PG_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-2g}
+    ports:
+      - "${NACOS_PORT:-8848}:8848"
+      - "${NACOS_GRPC_PORT:-9848}:9848"
+    volumes:
+      - nacos_data1:/home/nacos/data
+      - nacos_logs1:/home/nacos/logs
+    depends_on:
+      - postgres-1
+    networks:
+      - mediation-cluster
+
+  nacos-2:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos-2
+    restart: always
+    environment:
+      MODE: cluster
+      NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
+      SPRING_DATASOURCE_PLATFORM: postgresql
+      MYSQL_SERVICE_HOST: pgbouncer
+      MYSQL_SERVICE_PORT: 5432
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${PG_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-2g}
+    ports:
+      - "${NACOS_PORT_2:-8858}:8848"
+      - "${NACOS_GRPC_PORT_2:-9868}:9848"
+    volumes:
+      - nacos_data2:/home/nacos/data
+      - nacos_logs2:/home/nacos/logs
+    networks:
+      - mediation-cluster
+
+  nacos-3:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos-3
+    restart: always
+    environment:
+      MODE: cluster
+      NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
+      SPRING_DATASOURCE_PLATFORM: postgresql
+      MYSQL_SERVICE_HOST: pgbouncer
+      MYSQL_SERVICE_PORT: 5432
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${PG_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-2g}
+    ports:
+      - "${NACOS_PORT_3:-8868}:8848"
+      - "${NACOS_GRPC_PORT_3:-9878}:9848"
+    volumes:
+      - nacos_data3:/home/nacos/data
+      - nacos_logs3:/home/nacos/logs
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # NebulaGraph 集群
+  # ============================================================
+  nebula-metad-1:
+    image: vesoft/nebula-metad:v3.8.0
+    container_name: mediation-nebula-metad-1
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_METAD_PORT:-9559}:9559"
+    volumes:
+      - nebula_metad_data1:/usr/local/nebula/data
+      - nebula_metad_logs1:/usr/local/nebula/logs
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-metad-1
+      - --ws_ip=nebula-metad-1
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+
+  nebula-metad-2:
+    image: vesoft/nebula-metad:v3.8.0
+    container_name: mediation-nebula-metad-2
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_METAD_PORT_2:-9560}:9559"
+    volumes:
+      - nebula_metad_data2:/usr/local/nebula/data
+      - nebula_metad_logs2:/usr/local/nebula/logs
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-metad-2
+      - --ws_ip=nebula-metad-2
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+
+  nebula-storaged-1:
+    image: vesoft/nebula-storaged:v3.8.0
+    container_name: mediation-nebula-storaged-1
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_STORAGED_PORT:-9779}:9779"
+    volumes:
+      - nebula_storaged_data1:/usr/local/nebula/data
+      - nebula_storaged_logs1:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad-1
+      - nebula-metad-2
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-storaged-1
+      - --ws_ip=nebula-storaged-1
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_auto_remove_leader=true
+
+  nebula-storaged-2:
+    image: vesoft/nebula-storaged:v3.8.0
+    container_name: mediation-nebula-storaged-2
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_STORAGED_PORT_2:-9780}:9779"
+    volumes:
+      - nebula_storaged_data2:/usr/local/nebula/data
+      - nebula_storaged_logs2:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad-1
+      - nebula-metad-2
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-storaged-2
+      - --ws_ip=nebula-storaged-2
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_auto_remove_leader=true
+
+  nebula-storaged-3:
+    image: vesoft/nebula-storaged:v3.8.0
+    container_name: mediation-nebula-storaged-3
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_STORAGED_PORT_3:-9781}:9779"
+    volumes:
+      - nebula_storaged_data3:/usr/local/nebula/data
+      - nebula_storaged_logs3:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad-1
+      - nebula-metad-2
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-storaged-3
+      - --ws_ip=nebula-storaged-3
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_auto_remove_leader=true
+
+  nebula-graphd-1:
+    image: vesoft/nebula-graphd:v3.8.0
+    container_name: mediation-nebula-graphd-1
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_GRAPH_PORT:-9669}:9669"
+    volumes:
+      - nebula_graphd_logs1:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad-1
+      - nebula-metad-2
+      - nebula-storaged-1
+      - nebula-storaged-2
+      - nebula-storaged-3
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-graphd-1
+      - --ws_ip=nebula-graphd-1
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_authorize=true
+
+  nebula-graphd-2:
+    image: vesoft/nebula-graphd:v3.8.0
+    container_name: mediation-nebula-graphd-2
+    restart: always
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_GRAPH_PORT_2:-9670}:9669"
+    volumes:
+      - nebula_graphd_logs2:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad-1
+      - nebula-metad-2
+      - nebula-storaged-1
+      - nebula-storaged-2
+      - nebula-storaged-3
+    networks:
+      - mediation-cluster
+    command:
+      - --meta_server_addrs=nebula-metad-1:9559,nebula-metad-2:9559
+      - --local_ip=nebula-graphd-2
+      - --ws_ip=nebula-graphd-2
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_authorize=true
+
+  # NebulaGraph Console
+  nebula-console:
+    image: vesoft/nebula-console:latest
+    container_name: mediation-nebula-console
+    restart: always
+    depends_on:
+      - nebula-graphd-1
+    networks:
+      - mediation-cluster
+    entrypoint: ["sleep", "infinity"]
+
+  # ============================================================
+  # MinIO 集群
+  # ============================================================
+  minio-1:
+    image: minio/minio:latest
+    container_name: mediation-minio-1
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data1:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+  minio-2:
+    image: minio/minio:latest
+    container_name: mediation-minio-2
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT_2:-9010}:9000"
+      - "${MINIO_CONSOLE_PORT_2:-9011}:9001"
+    volumes:
+      - minio_data2:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+  minio-3:
+    image: minio/minio:latest
+    container_name: mediation-minio-3
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT_3:-9020}:9000"
+      - "${MINIO_CONSOLE_PORT_3:-9021}:9001"
+    volumes:
+      - minio_data3:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+  minio-4:
+    image: minio/minio:latest
+    container_name: mediation-minio-4
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT_4:-9030}:9000"
+      - "${MINIO_CONSOLE_PORT_4:-9031}:9001"
+    volumes:
+      - minio_data4:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+networks:
+  mediation-cluster:
+    driver: bridge
+
+volumes:
+  postgres_data1:
+  postgres_data2:
+  postgres_data3:
+  etcd_data:
+  redis_master_data:
+  redis_replica_data:
+  nacos_data1:
+  nacos_data2:
+  nacos_data3:
+  nacos_logs1:
+  nacos_logs2:
+  nacos_logs3:
+  nebula_metad_data1:
+  nebula_metad_data2:
+  nebula_metad_logs1:
+  nebula_metad_logs2:
+  nebula_storaged_data1:
+  nebula_storaged_data2:
+  nebula_storaged_data3:
+  nebula_storaged_logs1:
+  nebula_storaged_logs2:
+  nebula_storaged_logs3:
+  nebula_graphd_logs1:
+  nebula_graphd_logs2:
+  minio_data1:
+  minio_data2:
+  minio_data3:
+  minio_data4:

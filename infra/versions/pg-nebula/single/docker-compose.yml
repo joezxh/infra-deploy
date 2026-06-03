@@ -1,0 +1,231 @@
+# ============================================================
+# PostgreSQL + NebulaGraph 单机版部署
+# 使用: docker compose up -d
+# ============================================================
+
+services:
+  # ============================================================
+  # PostgreSQL 17 + pgvector
+  # ============================================================
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: mediation-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PG_USER:-mediation}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-mediation123}
+      POSTGRES_DB: mediation_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: Asia/Shanghai
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -cshared_preload_libraries=vector
+      - -cmax_connections=500
+      - -cwork_mem=64MB
+      - -cmaintenance_work_mem=256MB
+      - -ceffective_cache_size=2GB
+    networks:
+      - mediation-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-mediation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============================================================
+  # Redis 7.x
+  # ============================================================
+  redis:
+    image: redis:7.4-alpine
+    container_name: mediation-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command:
+      - redis-server
+      - --maxmemory=${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy=allkeys-lru
+      - --appendonly=yes
+    networks:
+      - mediation-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ============================================================
+  # Nacos 3.2.1
+  # ============================================================
+  nacos:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: postgresql
+      MYSQL_SERVICE_HOST: postgres
+      MYSQL_SERVICE_PORT: 5432
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${PG_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-false}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-1024m}
+    ports:
+      - "${NACOS_PORT:-8848}:8848"
+      - "${NACOS_GRPC_PORT:-9848}:9848"
+    volumes:
+      - nacos_data:/home/nacos/data
+      - nacos_logs:/home/nacos/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mediation-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ============================================================
+  # NebulaGraph 社区版 (单机)
+  # ============================================================
+  nebula-metad:
+    image: vesoft/nebula-metad:v3.8.0
+    container_name: mediation-nebula-metad
+    restart: unless-stopped
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_METAD_PORT:-9559}:9559"
+    volumes:
+      - nebula_metad_data:/usr/local/nebula/data
+      - nebula_metad_logs:/usr/local/nebula/logs
+    command:
+      - --meta_server_addrs=127.0.0.1:9559
+      - --local_ip=127.0.0.1
+      - --ws_ip=127.0.0.1
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+    networks:
+      - mediation-net
+
+  nebula-storaged:
+    image: vesoft/nebula-storaged:v3.8.0
+    container_name: mediation-nebula-storaged
+    restart: unless-stopped
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_STORAGED_PORT:-9779}:9779"
+    volumes:
+      - nebula_storaged_data:/usr/local/nebula/data
+      - nebula_storaged_logs:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad
+    command:
+      - --meta_server_addrs=127.0.0.1:9559
+      - --local_ip=127.0.0.1
+      - --ws_ip=127.0.0.1
+      - --data_path=/usr/local/nebula/data
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_auto_remove_leader=true
+    networks:
+      - mediation-net
+
+  nebula-graphd:
+    image: vesoft/nebula-graphd:v3.8.0
+    container_name: mediation-nebula-graphd
+    restart: unless-stopped
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEBULA_GRAPH_PORT:-9669}:9669"
+    volumes:
+      - nebula_graphd_logs:/usr/local/nebula/logs
+    depends_on:
+      - nebula-metad
+      - nebula-storaged
+    command:
+      - --meta_server_addrs=127.0.0.1:9559
+      - --local_ip=127.0.0.1
+      - --ws_ip=127.0.0.1
+      - --log_dir=/usr/local/nebula/logs
+      - --minloglevel=2
+      - --enable_authorize=true
+    networks:
+      - mediation-net
+
+  # ============================================================
+  # MinIO
+  # ============================================================
+  minio:
+    image: minio/minio:latest
+    container_name: mediation-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - mediation-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ============================================================
+  # Nginx
+  # ============================================================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: mediation-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_logs:/var/log/nginx
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mediation-net
+
+networks:
+  mediation-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  nacos_data:
+  nacos_logs:
+  nebula_metad_data:
+  nebula_metad_logs:
+  nebula_storaged_data:
+  nebula_storaged_logs:
+  nebula_graphd_logs:
+  minio_data:
+  nginx_logs:

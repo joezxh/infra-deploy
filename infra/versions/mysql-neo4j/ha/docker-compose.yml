@@ -1,0 +1,445 @@
+# ============================================================
+# MySQL + Neo4j 高可用集群部署
+# 使用: docker compose up -d
+# ============================================================
+
+services:
+  # ============================================================
+  # MySQL Group Replication 集群
+  # ============================================================
+  mysql-1:
+    image: mysql:8.4.0
+    container_name: mediation-mysql-1
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mediation123}
+      MYSQL_DATABASE: mediation_db
+      MYSQL_USER: ${MYSQL_USER:-mediation}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mediation123}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data1:/var/lib/mysql
+      - ../scripts/db:/docker-entrypoint-initdb.d:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max_connections=2000
+      - --innodb_buffer_pool_size=2G
+      - --gtid_mode=ON
+      - --enforce_gtid_consistency=ON
+      - --log_slave_updates=ON
+      - --transaction_write_set_extraction=XXHASH64
+      - --loose-group_replication_group_name=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+      - --loose-group_replication_group_seeds=mysql-1:3306,mysql-2:3306,mysql-3:3306
+      - --loose-group_replication_single_primary_mode=OFF
+      - --loose-group_replication_enforce_update_everywhere_checks=ON
+      - --loose-group_replication_bootstrap_group=OFF
+      - --server-id=1
+    networks:
+      - mediation-cluster
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-mediation123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  mysql-2:
+    image: mysql:8.4.0
+    container_name: mediation-mysql-2
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mediation123}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT_2:-3307}:3306"
+    volumes:
+      - mysql_data2:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max_connections=2000
+      - --innodb_buffer_pool_size=2G
+      - --gtid_mode=ON
+      - --enforce_gtid_consistency=ON
+      - --log_slave_updates=ON
+      - --transaction_write_set_extraction=XXHASH64
+      - --loose-group_replication_group_name=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+      - --loose-group_replication_group_seeds=mysql-1:3306,mysql-2:3306,mysql-3:3306
+      - --loose-group_replication_single_primary_mode=OFF
+      - --loose-group_replication_enforce_update_everywhere_checks=ON
+      - --loose-group_replication_bootstrap_group=OFF
+      - --server-id=2
+    networks:
+      - mediation-cluster
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-mediation123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  mysql-3:
+    image: mysql:8.4.0
+    container_name: mediation-mysql-3
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mediation123}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT_3:-3308}:3306"
+    volumes:
+      - mysql_data3:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max_connections=2000
+      - --innodb_buffer_pool_size=2G
+      - --gtid_mode=ON
+      - --enforce_gtid_consistency=ON
+      - --log_slave_updates=ON
+      - --transaction_write_set_extraction=XXHASH64
+      - --loose-group_replication_group_name=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+      - --loose-group_replication_group_seeds=mysql-1:3306,mysql-2:3306,mysql-3:3306
+      - --loose-group_replication_single_primary_mode=OFF
+      - --loose-group_replication_enforce_update_everywhere_checks=ON
+      - --loose-group_replication_bootstrap_group=OFF
+      - --server-id=3
+    networks:
+      - mediation-cluster
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-mediation123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  # ============================================================
+  # HAProxy (MySQL 负载均衡)
+  # ============================================================
+  mysql-haproxy:
+    image: haproxy:2.9-alpine
+    container_name: mediation-mysql-haproxy
+    restart: always
+    ports:
+      - "${MYSQL_PROXY_PORT:-33060}:33060"
+      - "${HAPROXY_ADMIN_PORT:-8404}:8404"
+    volumes:
+      - ./haproxy-mysql.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - mysql-1
+      - mysql-2
+      - mysql-3
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # Redis Sentinel 高可用
+  # ============================================================
+  redis-master:
+    image: redis:7.4-alpine
+    container_name: mediation-redis-master
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_master_data:/data
+    command:
+      - redis-server
+      - --requirepass ${REDIS_PASSWORD:-redis123}
+      - --masterauth ${REDIS_PASSWORD:-redis123}
+      - --appendonly=yes
+      - --maxmemory=1gb
+      - --maxmemory-policy=allkeys-lru
+    networks:
+      - mediation-cluster
+
+  redis-replica:
+    image: redis:7.4-alpine
+    container_name: mediation-redis-replica
+    restart: always
+    ports:
+      - "${REDIS_PORT_2:-6380}:6379"
+    volumes:
+      - redis_replica_data:/data
+    command:
+      - redis-server
+      - --requirepass ${REDIS_PASSWORD:-redis123}
+      - --masterauth ${REDIS_PASSWORD:-redis123}
+      - --replicaof redis-master 6379
+      - --appendonly=yes
+    depends_on:
+      - redis-master
+    networks:
+      - mediation-cluster
+
+  redis-sentinel:
+    image: redis:7.4-alpine
+    container_name: mediation-redis-sentinel
+    restart: always
+    ports:
+      - "${REDIS_SENTINEL_PORT:-26379}:26379"
+    command: >
+      redis-server
+      --sentinel monitor mediation-master redis-master 6379 2
+      --sentinel down-after-milliseconds mediation-master 5000
+      --sentinel failover-timeout mediation-master 10000
+      --sentinel parallel-syncs mediation-master 1
+      --sentinel auth-pass mediation-master ${REDIS_PASSWORD:-redis123}
+    depends_on:
+      - redis-master
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # Nacos 集群
+  # ============================================================
+  nacos-1:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos-1
+    restart: always
+    environment:
+      MODE: cluster
+      NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql-haproxy
+      MYSQL_SERVICE_PORT: 33060
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${MYSQL_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_PASSWORD:-mediation123}
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-2g}
+    ports:
+      - "${NACOS_PORT:-8848}:8848"
+      - "${NACOS_GRPC_PORT:-9848}:9848"
+    volumes:
+      - nacos_data1:/home/nacos/data
+      - nacos_logs1:/home/nacos/logs
+    depends_on:
+      mysql-1:
+        condition: service_healthy
+    networks:
+      - mediation-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  nacos-2:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos-2
+    restart: always
+    environment:
+      MODE: cluster
+      NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql-haproxy
+      MYSQL_SERVICE_PORT: 33060
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${MYSQL_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_PASSWORD:-mediation123}
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-2g}
+    ports:
+      - "${NACOS_PORT_2:-8858}:8848"
+      - "${NACOS_GRPC_PORT_2:-9868}:9848"
+    volumes:
+      - nacos_data2:/home/nacos/data
+      - nacos_logs2:/home/nacos/logs
+    depends_on:
+      mysql-1:
+        condition: service_healthy
+    networks:
+      - mediation-cluster
+
+  nacos-3:
+    image: nacos/nacos-server:v3.2.1
+    container_name: mediation-nacos-3
+    restart: always
+    environment:
+      MODE: cluster
+      NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql-haproxy
+      MYSQL_SERVICE_PORT: 33060
+      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_USER: ${MYSQL_USER:-mediation}
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_PASSWORD:-mediation123}
+      NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
+      JVM_XMS: ${NACOS_JVM_XMS:-512m}
+      JVM_XMX: ${NACOS_JVM_XMX:-2g}
+    ports:
+      - "${NACOS_PORT_3:-8868}:8848"
+      - "${NACOS_GRPC_PORT_3:-9878}:9848"
+    volumes:
+      - nacos_data3:/home/nacos/data
+      - nacos_logs3:/home/nacos/logs
+    depends_on:
+      mysql-1:
+        condition: service_healthy
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # Neo4j 集群 (通过负载均衡实现高可用)
+  # Neo4j 社区版不支持原生集群，使用备份+故障转移实现HA
+  # ============================================================
+  neo4j-1:
+    image: neo4j:5.22-community
+    container_name: mediation-neo4j-1
+    restart: always
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-mediation123}
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: yes
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      NEO4J_dbms_memory_heap_initial__size: ${NEO4J_HEAP_SIZE:-1g}
+      NEO4J_dbms_memory_heap_max__size: ${NEO4J_HEAP_MAX_SIZE:-4g}
+      NEO4J_dbms_memory_pagecache_size: ${NEO4J_PAGECACHE_SIZE:-2g}
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+    volumes:
+      - neo4j_data1:/data
+      - neo4j_logs1:/logs
+      - neo4j_backups:/backups
+    networks:
+      - mediation-cluster
+
+  neo4j-2:
+    image: neo4j:5.22-community
+    container_name: mediation-neo4j-2
+    restart: always
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-mediation123}
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: yes
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      NEO4J_dbms_memory_heap_initial__size: ${NEO4J_HEAP_SIZE:-1g}
+      NEO4J_dbms_memory_heap_max__size: ${NEO4J_HEAP_MAX_SIZE:-4g}
+      NEO4J_dbms_memory_pagecache_size: ${NEO4J_PAGECACHE_SIZE:-2g}
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*
+      TZ: Asia/Shanghai
+    ports:
+      - "${NEO4J_BOLT_PORT_2:-7688}:7687"
+      - "${NEO4J_HTTP_PORT_2:-7475}:7474"
+    volumes:
+      - neo4j_data2:/data
+      - neo4j_logs2:/logs
+    networks:
+      - mediation-cluster
+
+  # Neo4j HAProxy
+  neo4j-haproxy:
+    image: haproxy:2.9-alpine
+    container_name: mediation-neo4j-haproxy
+    restart: always
+    ports:
+      - "${NEO4J_PROXY_BOLT_PORT:-7689}:7687"
+      - "${NEO4J_PROXY_HTTP_PORT:-7476}:7474"
+    volumes:
+      - ./haproxy-neo4j.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - neo4j-1
+      - neo4j-2
+    networks:
+      - mediation-cluster
+
+  # ============================================================
+  # MinIO 集群 (Erasure Code)
+  # ============================================================
+  minio-1:
+    image: minio/minio:latest
+    container_name: mediation-minio-1
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data1:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+  minio-2:
+    image: minio/minio:latest
+    container_name: mediation-minio-2
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT_2:-9010}:9000"
+      - "${MINIO_CONSOLE_PORT_2:-9011}:9001"
+    volumes:
+      - minio_data2:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+  minio-3:
+    image: minio/minio:latest
+    container_name: mediation-minio-3
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT_3:-9020}:9000"
+      - "${MINIO_CONSOLE_PORT_3:-9021}:9001"
+    volumes:
+      - minio_data3:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+  minio-4:
+    image: minio/minio:latest
+    container_name: mediation-minio-4
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-mediation}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-mediation123456}
+    ports:
+      - "${MINIO_API_PORT_4:-9030}:9000"
+      - "${MINIO_CONSOLE_PORT_4:-9031}:9001"
+    volumes:
+      - minio_data4:/data
+    networks:
+      - mediation-cluster
+    command: server http://minio-{1,2,3,4}/data --console-address ":9001"
+
+networks:
+  mediation-cluster:
+    driver: bridge
+
+volumes:
+  mysql_data1:
+  mysql_data2:
+  mysql_data3:
+  redis_master_data:
+  redis_replica_data:
+  nacos_data1:
+  nacos_data2:
+  nacos_data3:
+  nacos_logs1:
+  nacos_logs2:
+  nacos_logs3:
+  neo4j_data1:
+  neo4j_data2:
+  neo4j_logs1:
+  neo4j_logs2:
+  neo4j_backups:
+  minio_data1:
+  minio_data2:
+  minio_data3:
+  minio_data4:

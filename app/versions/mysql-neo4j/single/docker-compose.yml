@@ -1,0 +1,455 @@
+# ============================================================
+# MySQL + Neo4j 版本 - 应用微服务单机版部署
+# 使用: docker compose up -d
+# ============================================================
+
+services:
+  # ============================================================
+  # Nacos 依赖等待服务
+  # ============================================================
+  nacos-ready:
+    image: busybox:latest
+    container_name: mediation-app-nacos-ready
+    networks:
+      - mediation-app
+    depends_on:
+      nacos:
+        condition: service_healthy
+    entrypoint: ["echo", "Nacos is ready"]
+
+  # ============================================================
+  # API 网关服务 (mediation-basic)
+  # ============================================================
+  gateway:
+    image: ${REGISTRY:- mediation}/mediation-gateway:${APP_VERSION:-latest}
+    container_name: mediation-gateway
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      SPRING_CLOUD_NACOS_CONFIG_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    volumes:
+      - ./logs/gateway:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # UAA 认证服务 (mediation-basic)
+  # ============================================================
+  uaa:
+    image: ${REGISTRY:- mediation}/mediation-uaa:${APP_VERSION:-latest}
+    container_name: mediation-uaa
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${UAA_PORT:-8081}:8081"
+    volumes:
+      - ./logs/uaa:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # System 系统服务 (mediation-basic)
+  # ============================================================
+  system:
+    image: ${REGISTRY:- mediation}/mediation-system:${APP_VERSION:-latest}
+    container_name: mediation-system
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${SYSTEM_PORT:-8082}:8082"
+    volumes:
+      - ./logs/system:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Case 案件服务 (mediation-platform-biz)
+  # ============================================================
+  case:
+    image: ${REGISTRY:- mediation}/mediation-case:${APP_VERSION:-latest}
+    container_name: mediation-case
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${CASE_PORT:-8084}:8084"
+    volumes:
+      - ./logs/case:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Mediation 调解服务 (mediation-platform-biz)
+  # ============================================================
+  mediation:
+    image: ${REGISTRY:- mediation}/mediation-mediation:${APP_VERSION:-latest}
+    container_name: mediation-mediation
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      NEO4J_URI: bolt://${NEO4J_HOST:-127.0.0.1}:${NEO4J_PORT:-7687}
+      NEO4J_AUTHENTICATION_BASIC_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_AUTHENTICATION_BASIC_PASSWORD: ${NEO4J_PASSWORD:-mediation123}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MEDIATION_PORT:-8085}:8085"
+    volumes:
+      - ./logs/mediation:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # AI 服务 (mediation-ai)
+  # ============================================================
+  ai:
+    image: ${REGISTRY:- mediation}/mediation-ai:${APP_VERSION:-latest}
+    container_name: mediation-ai
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      NEO4J_URI: bolt://${NEO4J_HOST:-127.0.0.1}:${NEO4J_PORT:-7687}
+      NEO4J_AUTHENTICATION_BASIC_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_AUTHENTICATION_BASIC_PASSWORD: ${NEO4J_PASSWORD:-mediation123}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${AI_PORT:-8086}:8086"
+    volumes:
+      - ./logs/ai:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Harness Agent 服务 (mediation-ai)
+  # ============================================================
+  harness:
+    image: ${REGISTRY:- mediation}/mediation-harness:${APP_VERSION:-latest}
+    container_name: mediation-harness
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-2048m} -Xmn${JAVA_XMN:-512m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${HARNESS_PORT:-8091}:8091"
+    volumes:
+      - ./logs/harness:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Auxiliary 辅助服务 (mediation-platform-biz)
+  # ============================================================
+  auxiliary:
+    image: ${REGISTRY:- mediation}/mediation-auxiliary:${APP_VERSION:-latest}
+    container_name: mediation-auxiliary
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${AUXILIARY_PORT:-8089}:8089"
+    volumes:
+      - ./logs/auxiliary:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8089/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Video 视频服务 (mediation-platform-biz)
+  # ============================================================
+  video:
+    image: ${REGISTRY:- mediation}/mediation-video:${APP_VERSION:-latest}
+    container_name: mediation-video
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${VIDEO_PORT:-8090}:8090"
+    volumes:
+      - ./logs/video:/logs
+      - video-data:/data
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Dispatch 派发服务 (mediation-platform-biz)
+  # ============================================================
+  dispatch:
+    image: ${REGISTRY:- mediation}/mediation-dispatch:${APP_VERSION:-latest}
+    container_name: mediation-dispatch
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      ROCKETMQ_NAMESRV_ADDR: ${ROCKETMQ_NAMESRV_ADDR:-127.0.0.1:9876}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${DISPATCH_PORT:-8093}:8093"
+    volumes:
+      - ./logs/dispatch:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8093/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Content 内容服务 (mediation-platform-biz)
+  # ============================================================
+  content:
+    image: ${REGISTRY:- mediation}/mediation-content:${APP_VERSION:-latest}
+    container_name: mediation-content
+    restart: unless-stopped
+    environment:
+      SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-public}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      SPRING_REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      SPRING_REDIS_PORT: ${REDIS_PORT:-6379}
+      SPRING_DATASOURCE_DYNAMIC_PRIMARY: master
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/${DB_NAME:-mediation_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${DB_PASSWORD:-mediation123}
+      JAVA_OPTS: -Xms${JAVA_XMS:-512m} -Xmx${JAVA_XMX:-1024m} -Xmn${JAVA_XMN:-256m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${CONTENT_PORT:-8094}:8094"
+    volumes:
+      - ./logs/content:/logs
+    networks:
+      - mediation-app
+    depends_on:
+      nacos-ready:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8094/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================================
+  # Web 前端 (mediation-web)
+  # ============================================================
+  web:
+    image: ${REGISTRY:- mediation}/mediation-web:${APP_VERSION:-latest}
+    container_name: mediation-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+      - "${WEB_SSL_PORT:-443}:443"
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/conf.d:/etc/nginx/conf.d:ro
+      - web-logs:/var/log/nginx
+    networks:
+      - mediation-app
+    depends_on:
+      - gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ============================================================
+# 网络配置
+# ============================================================
+networks:
+  mediation-app:
+    driver: bridge
+    name: mediation-app-network
+
+# ============================================================
+# 存储卷配置
+# ============================================================
+volumes:
+  video-data:
+    name: mediation-video-data
+  web-logs:
+    name: mediation-web-logs
