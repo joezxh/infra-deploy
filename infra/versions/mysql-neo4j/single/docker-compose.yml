@@ -87,17 +87,15 @@ services:
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-Y2xvdWRfbmFjb3NfY29uZmlndXJhdGlvbl9rZXlfMjAyNQ==}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-Y2xvdWRfbmFjb3NfY29uZmlndXJhdGlvbl92YWx1ZV8yMDI1}
       NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE: ${NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE:-false}
-      SPRING_CONFIG_ADDITIONAL_LOCATION: /home/nacos/conf/override/
-      SPRING_APPLICATION_JSON: '{"nacos":{"config":{"namespace":{"compatible":{"mode":false}}}},"db":{"num":1,"url":{"0":"jdbc:mysql://192.168.100.232:3306/nacos_db?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true"},"user":{"0":"mediation"},"password":{"0":"mediation123"}}}'
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-1024m}
     ports:
       - "${NACOS_PORT:-8848}:8848"
+      - "${NACOS_HTTP_PORT:-8080}:8080"
       - "${NACOS_GRPC_PORT:-9848}:9848"
     volumes:
       - nacos_data:/home/nacos/data
       - nacos_logs:/home/nacos/logs
-      - ./nacos-application.properties:/home/nacos/conf/override/application.properties:ro
     depends_on:
       mysql:
         condition: service_healthy
