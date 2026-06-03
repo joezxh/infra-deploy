@@ -90,6 +90,7 @@ services:
     volumes:
       - nacos_data:/home/nacos/data
       - nacos_logs:/home/nacos/logs
+      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
     depends_on:
       mysql:
         condition: service_healthy

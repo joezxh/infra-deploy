@@ -209,6 +209,7 @@ services:
     volumes:
       - nacos_data1:/home/nacos/data
       - nacos_logs1:/home/nacos/logs
+      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
     depends_on:
       - postgres-1
     networks:
@@ -241,6 +242,7 @@ services:
     volumes:
       - nacos_data2:/home/nacos/data
       - nacos_logs2:/home/nacos/logs
+      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
     networks:
       - mediation-cluster
 
@@ -271,6 +273,7 @@ services:
     volumes:
       - nacos_data3:/home/nacos/data
       - nacos_logs3:/home/nacos/logs
+      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
     networks:
       - mediation-cluster
 
