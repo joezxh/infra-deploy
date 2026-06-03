@@ -8,6 +8,23 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 加载环境变量
+ENV_FILE="${SCRIPT_DIR}/../../.env"
+ENV_SAMPLE="${SCRIPT_DIR}/../../.env.sample"
+
+if [ -f "$ENV_FILE" ]; then
+    echo "加载环境变量: $ENV_FILE"
+    set -a
+    source "$ENV_FILE"
+    set +a
+elif [ -f "$ENV_SAMPLE" ]; then
+    echo "警告: .env 文件不存在，使用 .env.sample 默认值"
+    echo "建议: cp .env.sample .env 并修改配置"
+    set -a
+    source "$ENV_SAMPLE"
+    set +a
+fi
+
 # 兼容旧版 Docker 客户端
 export DOCKER_API_VERSION=1.44
 
