@@ -87,6 +87,7 @@ services:
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-Y2xvdWRfbmFjb3NfY29uZmlndXJhdGlvbl9rZXlfMjAyNQ==}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-Y2xvdWRfbmFjb3NfY29uZmlndXJhdGlvbl92YWx1ZV8yMDI1}
       NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE: ${NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE:-false}
+      SPRING_CONFIG_ADDITIONAL_LOCATION: /home/nacos/conf/override/
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-1024m}
     ports:
@@ -95,7 +96,7 @@ services:
     volumes:
       - nacos_data:/home/nacos/data
       - nacos_logs:/home/nacos/logs
-      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
+      - ./nacos-application.properties:/home/nacos/conf/override/application.properties:ro
     depends_on:
       mysql:
         condition: service_healthy

@@ -201,6 +201,7 @@ services:
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
       NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE: ${NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE:-false}
+      SPRING_CONFIG_ADDITIONAL_LOCATION: /home/nacos/conf/override/
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-2g}
     ports:
@@ -209,7 +210,7 @@ services:
     volumes:
       - nacos_data1:/home/nacos/data
       - nacos_logs1:/home/nacos/logs
-      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
+      - ./nacos-application.properties:/home/nacos/conf/override/application.properties:ro
     depends_on:
       - postgres-1
     networks:
@@ -234,6 +235,7 @@ services:
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
       NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE: ${NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE:-false}
+      SPRING_CONFIG_ADDITIONAL_LOCATION: /home/nacos/conf/override/
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-2g}
     ports:
@@ -242,7 +244,7 @@ services:
     volumes:
       - nacos_data2:/home/nacos/data
       - nacos_logs2:/home/nacos/logs
-      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
+      - ./nacos-application.properties:/home/nacos/conf/override/application.properties:ro
     networks:
       - mediation-cluster
 
@@ -265,6 +267,7 @@ services:
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
       NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE: ${NACOS_CONFIG_NAMESPACE_MIGRATE_ENABLE:-false}
+      SPRING_CONFIG_ADDITIONAL_LOCATION: /home/nacos/conf/override/
       JVM_XMS: ${NACOS_JVM_XMS:-512m}
       JVM_XMX: ${NACOS_JVM_XMX:-2g}
     ports:
@@ -273,7 +276,7 @@ services:
     volumes:
       - nacos_data3:/home/nacos/data
       - nacos_logs3:/home/nacos/logs
-      - ./nacos-application.properties:/home/nacos/conf/application.properties:ro
+      - ./nacos-application.properties:/home/nacos/conf/override/application.properties:ro
     networks:
       - mediation-cluster
 
