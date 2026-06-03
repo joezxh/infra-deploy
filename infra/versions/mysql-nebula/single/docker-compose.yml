@@ -77,7 +77,7 @@ services:
       MYSQL_SERVICE_PASSWORD: ${MYSQL_PASSWORD:-mediation123}
       MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
       NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
-      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-TmFjb3MhQCMkJV4mKigpOjo7Pj8=}
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-bWVkaWF0aW9uUGxhdGZvcm1OYWNvc1NlY3V0ZUtleTMy}
       NACOS_AUTH_TOKEN_EXPIRE_SECONDS: ${NACOS_AUTH_TOKEN_EXPIRE_SECONDS:-18000}
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
@@ -93,9 +93,6 @@ services:
       - nacos_data:/home/nacos/data
       - nacos_logs:/home/nacos/logs
       - ./nacos-application.properties:/home/nacos/conf/override/application.properties:ro
-    depends_on:
-      mysql:
-        condition: service_healthy
     networks:
       - mediation-net
     healthcheck:
