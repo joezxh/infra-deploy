@@ -71,9 +71,9 @@ services:
     environment:
       MODE: standalone
       SPRING_DATASOURCE_PLATFORM: postgresql
-      MYSQL_SERVICE_HOST: postgres
-      MYSQL_SERVICE_PORT: 5432
-      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_HOST: ${PG_SERVICE_HOST:-postgres}
+      MYSQL_SERVICE_PORT: ${PG_SERVICE_PORT:-5432}
+      MYSQL_SERVICE_DB_NAME: ${NACOS_DB_NAME:-nacos_db}
       MYSQL_SERVICE_USER: ${PG_USER:-mediation}
       MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
       MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false

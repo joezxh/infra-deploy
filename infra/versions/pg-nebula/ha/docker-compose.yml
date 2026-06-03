@@ -190,9 +190,9 @@ services:
       MODE: cluster
       NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
       SPRING_DATASOURCE_PLATFORM: postgresql
-      MYSQL_SERVICE_HOST: pgbouncer
-      MYSQL_SERVICE_PORT: 5432
-      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_HOST: ${PG_SERVICE_HOST_HA:-pgbouncer}
+      MYSQL_SERVICE_PORT: ${PG_SERVICE_PORT_HA:-5432}
+      MYSQL_SERVICE_DB_NAME: ${NACOS_DB_NAME:-nacos_db}
       MYSQL_SERVICE_USER: ${PG_USER:-mediation}
       MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
       NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
@@ -222,9 +222,9 @@ services:
       MODE: cluster
       NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
       SPRING_DATASOURCE_PLATFORM: postgresql
-      MYSQL_SERVICE_HOST: pgbouncer
-      MYSQL_SERVICE_PORT: 5432
-      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_HOST: ${PG_SERVICE_HOST_HA:-pgbouncer}
+      MYSQL_SERVICE_PORT: ${PG_SERVICE_PORT_HA:-5432}
+      MYSQL_SERVICE_DB_NAME: ${NACOS_DB_NAME:-nacos_db}
       MYSQL_SERVICE_USER: ${PG_USER:-mediation}
       MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
       NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
@@ -252,9 +252,9 @@ services:
       MODE: cluster
       NACOS_SERVERS: "nacos-1:8848 nacos-2:8848 nacos-3:8848"
       SPRING_DATASOURCE_PLATFORM: postgresql
-      MYSQL_SERVICE_HOST: pgbouncer
-      MYSQL_SERVICE_PORT: 5432
-      MYSQL_SERVICE_DB_NAME: nacos_db
+      MYSQL_SERVICE_HOST: ${PG_SERVICE_HOST_HA:-pgbouncer}
+      MYSQL_SERVICE_PORT: ${PG_SERVICE_PORT_HA:-5432}
+      MYSQL_SERVICE_DB_NAME: ${NACOS_DB_NAME:-nacos_db}
       MYSQL_SERVICE_USER: ${PG_USER:-mediation}
       MYSQL_SERVICE_PASSWORD: ${PG_PASSWORD:-mediation123}
       NACOS_AUTH_ENABLE: ${NACOS_AUTH_ENABLE:-true}
