@@ -74,6 +74,7 @@ show_help() {
     echo "  ./start.sh --services SERVICE_LIST  启动指定服务 (逗号分隔)"
     echo "  ./start.sh --exclude SERVICE_LIST   排除指定服务启动 (逗号分隔)"
     echo "  ./start.sh --stop SERVICE_LIST      停止指定服务 (逗号分隔)"
+    echo "  ./start.sh --stopall                停止所有服务并移除容器"
     echo "  ./start.sh --restart SERVICE_LIST   重启指定服务 (逗号分隔)"
     echo "  ./start.sh --status                 显示服务状态"
     echo "  ./start.sh --logs [SERVICE]         查看服务日志"
@@ -83,6 +84,7 @@ show_help() {
     echo "  ./start.sh --services mysql,redis,nacos"
     echo "  ./start.sh --exclude nebula-metad,nebula-storaged,nebula-graphd"
     echo "  ./start.sh --stop mysql"
+    echo "  ./start.sh --stopall"
     echo "  ./start.sh --restart mysql,nacos"
     echo ""
     echo "可用服务名称:"
@@ -261,6 +263,10 @@ while [[ $# -gt 0 ]]; do
             SERVICES="$2"
             shift 2
             ;;
+        --stopall)
+            ACTION="stopall"
+            shift
+            ;;
         --restart|-r)
             ACTION="restart"
             SERVICES="$2"
@@ -305,6 +311,17 @@ case "$ACTION" in
         ;;
     stop)
         stop_services "$SERVICES"
+        ;;
+    stopall)
+        echo ""
+        echo "=============================================="
+        echo "  停止所有服务并移除容器"
+        echo "=============================================="
+        echo ""
+        $DOCKER_COMPOSE down
+        echo ""
+        echo "所有服务已停止并移除容器!"
+        echo ""
         ;;
     restart)
         restart_services "$SERVICES"
