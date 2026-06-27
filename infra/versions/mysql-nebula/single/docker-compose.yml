@@ -5,10 +5,10 @@
 
 services:
   # ============================================================
-  # MySQL 8.x
+  # MySQL 9.x
   # ============================================================
   mysql:
-    image: mysql:8.4.0
+    image: mysql:9.0
     container_name: mediation-mysql
     restart: unless-stopped
     environment:
