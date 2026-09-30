@@ -1,0 +1,53 @@
+# PaddleOCR 本地一体化部署：PP-OCRv6 (CPU) + Nginx 反代鉴权
+#
+# 端口约定（OCR 容器只监听 127.0.0.1，避免绕过 Nginx 直连）：
+#   pp-ocrv6  127.0.0.1:${OCRV6_PORT}   -> 容器 8000
+#   nginx     0.0.0.0:${NGINX_HTTP_PORT} -> 容器 80  （唯一对外入口）
+#
+# 对外路径（均需 X-API-Key）：
+#   /ocr/v6/health , /ocr/v6/ocr
+
+services:
+  # ---------------- 1. PP-OCRv6 文本识别（CPU，零显存） ----------------
+  pp-ocrv6:
+    build:
+      context: ./pp-ocrv6
+      dockerfile: Dockerfile
+    image: ${OCRV6_IMAGE:-pp-ocrv6:1.0}
+    container_name: pp-ocrv6
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OCRV6_PORT:-8011}:8000"
+    environment:
+      # paddle 3.3.0 CPU 下 PP-OCRv6 det 走 oneDNN(PIR) 会崩，必须 false
+      OCR_ENABLE_MKLDNN: ${OCR_ENABLE_MKLDNN:-false}
+      OCR_CPU_THREADS: ${OCR_CPU_THREADS:-10}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # ---------------- 2. Nginx 反代 + API Key 鉴权 ----------------
+  nginx:
+    image: ${NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
+    container_name: paddle-nginx
+    restart: unless-stopped
+    depends_on:
+      - pp-ocrv6
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    environment:
+      API_KEY: ${API_KEY:?请先在 .env 中设置 API_KEY}
+      OCRV6_UPSTREAM: http://pp-ocrv6:8000
+    volumes:
+      # 官方 nginx 镜像的 entrypoint 会对 templates/*.template 做 envsubst 后落盘
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      # 注意用 127.0.0.1 而非 localhost：alpine 的 /etc/hosts 里 localhost 优先解析到
+      # ::1(IPv6)，而 busybox wget 会先尝试 IPv6，导致 "can't connect" 误判不健康。
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,9 @@
+# PP-OCRv6 文本识别服务依赖（版本写死，保证可复现；改动前请先验证兼容性）
+# paddlepaddle 由 Dockerfile 单独离线安装（wheels/ 下 184MB 轮子），此处不重复声明
+paddleocr==3.7.0
+paddlex[ocr-core]==3.7.2
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pillow==11.0.0
+numpy==1.26.4
