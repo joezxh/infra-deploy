@@ -1,0 +1,22 @@
+# 仅暴露 /v1/ser；X-API-Key 由 envsubst 注入，未带 key 直接 401
+upstream ser_core { server ser-core:8021; }
+
+server {
+    listen 80;
+    client_max_body_size 8m;
+
+    location = /health {
+        access_log off;
+        return 200 '{"status":"UP"}';
+        add_header Content-Type application/json;
+    }
+
+    location = /v1/ser {
+        if ($http_x_api_key != "${SER_API_KEY}") { return 401; }
+        proxy_pass http://ser_core;
+        proxy_read_timeout 3s;
+        proxy_connect_timeout 2s;
+    }
+
+    location / { return 404; }
+}

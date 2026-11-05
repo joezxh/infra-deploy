@@ -1,0 +1,138 @@
+# CompreFace 自托管人脸识别平台 —— 编排骨架（**本轮未实测，不得直接投产**）
+#
+# 用途：为 SP-3「人像到场一致性核验」提供内网 1:1 人脸比对服务。
+#       本轮只产出部署件，不接业务链路（不写 Java 核验代码、不改 livekit-worker）。
+#
+# !! 重要：本文件是「编排骨架」，不是可直接运行的官方编排 !!
+#   CompreFace 各容器的镜像 tag、环境变量名、依赖关系随版本变化。实施第一步必须：
+#     1) 取所选版本的官方 docker-compose.yml（见 .env.example 的 COMPREFACE_OFFICIAL_COMPOSE_URL）
+#     2) 逐项核对本文件的 image / environment / depends_on / healthcheck
+#     3) 把核对结论与差异回写 README.md「实测留档」表，未回写前不得置启用开关
+#   本环境 web_fetch 拉取官方 REST 文档与 GitHub 页面均超时/429，故官方 API 与编排细节
+#   一律标注「待实测」，以 scripts/verify.ps1 的可执行验证为准。
+#
+# 端口约定（避开已占用端口：OCR 8011 / SER 8020,8021 / paddle-nginx 8080 / 80）：
+#   compreface-fe     127.0.0.1:${COMPREFACE_UI_PORT:-8051}:80  仅回环，供运维首次建应用/生成服务 key
+#   compreface-nginx  0.0.0.0:${COMPREFACE_NGINX_PORT:-8050}:80  唯一对外入口，X-API-Key 鉴权
+#
+# 对外路径（均需 X-API-Key；nginx 剥掉 /face 前缀后转发到 CompreFace 原生 /api/v1/...）：
+#   POST /face/api/v1/detection/detect     人脸检测
+#   POST /face/api/v1/verification/verify  1:1 两图比对（SP-3 唯一允许使用的能力）
+#   GET  /face-nginx-health                免鉴权存活探针
+#
+# 隐私边界（与 SP-3 修订总纲 §A-T8 / §9 一致）：
+#   * CompreFace 自带 Postgres 命名卷，平台级持久化无法关闭；
+#   * 本平台**禁止启用 recognition / subject / face collection 的 1:N 能力**，
+#     只走 verification 1:1，使 CompreFace 侧不因本平台产生当事人人脸底库；
+#   * 卷的留存期、备份加密与删除流程是 G3 合规必答项，见 README。
+
+services:
+  # ---------------- 1. CompreFace 元数据与业务库（自带持久化） ----------------
+  compreface-postgres-db:
+    image: ${POSTGRES_IMAGE:-docker.m.daocloud.io/library/postgres:15-alpine}
+    container_name: compreface-postgres-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB:-compreface}
+      POSTGRES_USER: ${PG_USER:-compreface}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?请先在 .env 中设置 PG_PASSWORD}
+    volumes:
+      # 命名卷 = 唯一持久写路径。G3 必答：留存期 / 备份加密 / 撤回后的删除流程。
+      - compreface-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-compreface} -d ${PG_DB:-compreface} || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ---------------- 2. 推理核心（无状态，仅模型端口） ----------------
+  compreface-core:
+    image: ${COMPREFACE_CORE_IMAGE:-exadel/compreface-core:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-core
+    restart: unless-stopped
+    environment:
+      ML_PORT: 3000
+      # 官方 compose 的 UWSGI/模型相关变量请以所选版本为准，逐项核对后回写
+      FACE_DET_SIZE: ${FACE_DET_SIZE:-640}
+      FACE_MIN_DET_SCORE: ${FACE_MIN_DET_SCORE:-0.5}
+    healthcheck:
+      # 公开资料显示 core 在 ML_PORT 上提供 /healthcheck；**待实测**
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+
+  # ---------------- 3. 管理服务（创建应用 / 生成服务 key） ----------------
+  compreface-admin:
+    image: ${COMPREFACE_ADMIN_IMAGE:-exadel/compreface-admin:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-admin
+    restart: unless-stopped
+    depends_on:
+      compreface-postgres-db:
+        condition: service_healthy
+    environment:
+      # 以下变量名须与所选版本官方 compose 逐项核对（骨架值，未实测）
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-dev}
+      POSTGRES_HOST: compreface-postgres-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${PG_DB:-compreface}
+      POSTGRES_USER: ${PG_USER:-compreface}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?请先在 .env 中设置 PG_PASSWORD}
+      ENABLE_EMAIL: ${ENABLE_EMAIL:-false}
+
+  # ---------------- 4. 对外 REST API（detection / verification） ----------------
+  compreface-api:
+    image: ${COMPREFACE_API_IMAGE:-exadel/compreface-api:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-api
+    restart: unless-stopped
+    depends_on:
+      compreface-postgres-db:
+        condition: service_healthy
+      compreface-core:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-dev}
+      POSTGRES_HOST: compreface-postgres-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${PG_DB:-compreface}
+      POSTGRES_USER: ${PG_USER:-compreface}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?请先在 .env 中设置 PG_PASSWORD}
+      FRS_CORE_URL: http://compreface-core:3000
+
+  # ---------------- 5. Web 控制台（仅回环暴露，不对外） ----------------
+  compreface-fe:
+    image: ${COMPREFACE_FE_IMAGE:-exadel/compreface-fe:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-fe
+    restart: unless-stopped
+    depends_on:
+      - compreface-api
+      - compreface-admin
+    ports:
+      - "127.0.0.1:${COMPREFACE_UI_PORT:-8051}:80"
+
+  # ---------------- 6. 外层反代：唯一对外入口 + X-API-Key ----------------
+  compreface-nginx:
+    image: ${NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
+    container_name: compreface-nginx
+    restart: unless-stopped
+    depends_on:
+      - compreface-fe
+    ports:
+      - "${COMPREFACE_NGINX_PORT:-8050}:80"
+    environment:
+      API_KEY: ${API_KEY:?请先在 .env 中设置 API_KEY}
+      # CompreFace 自身服务 key 由 compose 注入，不暴露给业务调用方
+      COMPREFACE_API_KEY: ${COMPREFACE_API_KEY:?请先在控制台创建 Face Verification 服务并填入其 key}
+      COMPREFACE_UPSTREAM: ${COMPREFACE_UPSTREAM:-http://compreface-fe:80}
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      # 必须用 127.0.0.1：alpine 下 localhost 优先解析 ::1，busybox wget 会误判不健康
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/face-nginx-health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  compreface-postgres-data:

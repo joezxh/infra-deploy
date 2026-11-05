@@ -1,0 +1,32 @@
+# SP-4 SER 部署骨架（本轮未实测，U1-U5 门禁未回写前 MEETING_SER_ENABLED 恒 false）
+# 端口：对外 8020（nginx + X-API-Key），内部 8021（模型 core /health，不对外）
+services:
+  ser-core:
+    image: ${SER_CORE_IMAGE:-emotion2vec-ser:local}
+    container_name: mediation-ser-core
+    environment:
+      ML_PORT: 8021
+      SER_LABELS: calm,anxious,agitated,anger,threat
+    expose:
+      - "8021"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8021/healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    # 不挂音频卷：音频与中间向量一律不落盘
+
+  ser-nginx:
+    image: nginx:1.27-alpine
+    container_name: mediation-ser-nginx
+    depends_on:
+      ser-core:
+        condition: service_healthy
+    ports:
+      - "${SER_PUBLIC_PORT:-8020}:80"
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      SER_API_KEY: ${SER_API_KEY:?SER_API_KEY 必填，无明文默认值}
+    restart: unless-stopped
