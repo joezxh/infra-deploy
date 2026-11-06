@@ -405,53 +405,42 @@ mediation-deploy/
 ├── README.md                      # 本文件
 ├── docker-compose.dev.yml          # 开发环境配置 (旧)
 │
-├── infra/                         # 基础设施部署
+├── infra/                         # 基础设施部署（共享底座）
 │   ├── README.md                  # 基础设施文档
-│   │
+│   ├── start-mysql.sh / start-pg.sh   # 单机 MySQL / PostgreSQL 启动
+│   ├── stop-all.sh                    # 停止所有单机版服务
+│   ├── backup.sh                      # 全量备份 (MySQL/PG/Redis/Neo4j/Nebula/MinIO)
+│   ├── check-health.sh                # 基础设施健康检查
+│   ├── docker-compat.sh               # docker compose V1/V2 兼容封装
+│   ├── docker-compose.mysql.single.yml
+│   ├── docker-compose.pg.single.yml
+│   ├── haproxy-mysql.cfg
 │   └── versions/                  # 版本化部署配置
-│       │
-│       ├── mysql-neo4j/
-│       │   ├── single/            # 单机版
-│       │   │   ├── docker-compose.yml
-│       │   │   ├── start.sh
-│       │   │   └── README.md
-│       │   └── ha/               # 高可用版
-│       │       ├── docker-compose.yml
-│       │       ├── haproxy-*.cfg
-│       │       ├── start.sh
-│       │       └── README.md
-│       │
-│       ├── mysql-nebula/
-│       │   ├── single/
-│       │   └── ha/
-│       │
-│       ├── pg-neo4j/
-│       │   ├── single/
-│       │   └── ha/
-│       │
-│       └── pg-nebula/
-│           ├── single/
-│           └── ha/
+│       ├── mysql-neo4j/{single,ha}/   # 各含 docker-compose.yml / start.sh / backup*.sh / README.md / 建库 SQL
+│       ├── mysql-nebula/{single,ha}/
+│       ├── pg-neo4j/{single,ha}/
+│       └── pg-nebula/{single,ha}/
 │
-└── app/                           # 应用部署 (微服务)
-    ├── versions/                   # 应用部署版本
-    │   ├── mysql-neo4j/
-    │   │   ├── single/
-    │   │   └── ha/
-    │   ├── mysql-nebula/
-    │   │   ├── single/
-    │   │   └── ha/
-    │   ├── pg-neo4j/
-    │   │   ├── single/
-    │   │   └── ha/
-    │   └── pg-nebula/
-    │       ├── single/
-    │       └── ha/
-    └── scripts/
-        ├── start.sh / start.bat
-        ├── stop.sh / stop.bat
-        └── check-health.sh / check-health.bat
+├── app/                           # 业务微服务部署
+│   ├── scripts/                   # start/stop/check-health (.sh + .bat)
+│   └── versions/                  # 4 版本 × {single,ha}
+│
+├── scripts/                       # 通用脚本
+│   └── db/                        # Flyway 数据库迁移脚本 (V2026xxxx__*.sql)
+│
+├── livekit/                       # LiveKit 视频会议 SFU（7880/7881/7882）
+├── paddle/                        # PP-OCRv6 文本识别（Nginx :80 对外，OCR 容器内 8011）
+├── compreface/                    # CompreFace 人脸 1:1 比对（8050 对外 / 8051 回环 UI）
+├── ser/                           # emotion2vec 声学情感识别（8020 对外 / 8021 容器）
+└── tools/                         # 运维 / 评测脚本
+    ├── e2e/                       # 端到端人脸核验脚本 (face-verify-e2e.js)
+    ├── g01/                       # G0/G1 门禁取证 (g0-check-log.ps1 / g1-eval-frames.ps1)
+    ├── uaa-restart/               # UAA 重启日志
+    ├── voiceprint/                # 声纹探针 (g0-probe.ps1)
+    └── rotate-login-key.ps1       # 登录密钥轮换
 ```
+
+> 说明：除 `infra` 与 `app` 外，`livekit` / `paddle` / `compreface` / `ser` 为面向「AI 会议能力」（SP-3 人像核验 / SP-4 声学情感 / SP-5 证件 OCR）的独立部署件；它们彼此解耦、各自带 README 与一键脚本。`tools/` 提供门禁取证、E2E、密钥轮换等运维辅助。详见下方「AI 能力与运维组件部署」。
 
 ## 常见问题
 
@@ -573,3 +562,136 @@ cd ../../app
 - [pg-neo4j 高可用版](app/versions/pg-neo4j/ha/README.md)
 - [pg-nebula 单机版](app/versions/pg-nebula/single/README.md)
 - [pg-nebula 高可用版](app/versions/pg-nebula/ha/README.md)
+
+---
+
+# AI 能力与运维组件部署
+
+除 `infra`（共享底座）与 `app`（业务微服务）外，本仓库还包含面向「AI 会议能力」的独立部署件与通用运维脚本。它们均为 Docker Compose + PowerShell/Bash 一键脚本，彼此解耦、各自自带 README，**默认不接入业务链路**，多数带上线门禁开关。
+
+## 组件总览
+
+| 目录 | 部署件 | 用途 | 对外端口 | 文档 |
+|------|--------|------|----------|------|
+| `infra/` | 基础设施底座 | MySQL/PG/Redis/Nacos/Neo4j/Nebula/MinIO | 见上文 | [infra/README.md](infra/README.md) |
+| `app/` | 业务微服务 | Gateway/UAA/System/Case/Mediation/AI/… | 见上文 | [app 各版本 README](app/versions/) |
+| `scripts/db/` | 数据库迁移 | Flyway 增量脚本 | — | 见下 |
+| `livekit/` | 视频会议 SFU | 会议音视频信令/媒体 | 7880/tcp·7881/udp·7882/tcp | [livekit/README.md](livekit/README.md) |
+| `paddle/` | PP-OCRv6 文本识别 | 证件/材料 OCR | 80 (Nginx) | [paddle/README.md](paddle/README.md) |
+| `compreface/` | 人脸 1:1 比对 | 人像到场一致性核验 | 8050 / 8051(回环) | [compreface/README.md](compreface/README.md) |
+| `ser/` | 声学情感识别 | 会议情绪识别 | 8020 / 8021 | [ser/README.md](ser/README.md) |
+| `tools/` | 运维/评测 | 门禁取证、E2E、密钥轮换 | — | 见下 |
+
+> 端口避让（同一宿主）：OCR `8011`、SER `8020/8021`、`paddle-nginx` `8080`、LiveKit `7880/7881/7882`、CompreFace `8050/8051`、`80`（GPUStack 已占）。
+
+## 基础设施顶层脚本（infra/）
+
+| 脚本 | 作用 | 常用命令 |
+|------|------|----------|
+| `start-mysql.sh` | 启动 MySQL 版单机基础设施 | `cd infra && ./start-mysql.sh` |
+| `start-pg.sh` | 启动 PostgreSQL 版单机基础设施 | `cd infra && ./start-pg.sh` |
+| `stop-all.sh` | 停止所有单机版 compose | `cd infra && ./stop-all.sh` |
+| `backup.sh` | 全量备份 MySQL/PG/Redis/Neo4j/Nebula/MinIO，打包 `./backups/*.tar.gz`（保留 7 天） | `cd infra && ./backup.sh [single\|cluster]` |
+| `check-health.sh` | 逐项探活（MySQL/PG/Redis/Nacos/Neo4j/MinIO）并汇总 | `cd infra && ./check-health.sh` |
+| `docker-compat.sh` | 检测 `docker compose` V1/V2 并设置 `DOCKER_API_VERSION=1.44`，其它脚本 `source` 它 | — |
+
+各子版本（如 `infra/versions/mysql-neo4j/single/`）另带自己的 `start.sh`、`backup*.sh` 与建库 SQL，详见 [infra/README.md](infra/README.md)。
+
+## 应用服务脚本（app/scripts/）
+
+`app/scripts/` 提供跨版本的 `start.sh` / `start.bat` / `stop.sh` / `stop.bat` / `check-health.sh` / `check-health.bat`，用法：
+
+```bash
+./app/scripts/start.sh mysql-neo4j single      # 启动指定版本/模式
+./app/scripts/check-health.sh mysql-neo4j single
+```
+
+脚本会检查 `mediation-infra-network` 与必要端口（8848/3306/5432/6379），准备 `.env`，创建 `mediation-app-network` 与日志目录后 `docker compose up -d`。
+
+## 数据库迁移脚本（scripts/db/）
+
+Flyway 风格增量迁移，按版本号顺序执行：
+
+| 文件 | 作用 |
+|------|------|
+| `V20260718__add_opc_support_to_tenant_package.sql` | 租户套餐加 OPC 支持 |
+| `V20260719__create_agent_worker_tables.sql` | 创建 Agent Worker 相关表 |
+| `V20260720__create_task_execution_tracking_tables.sql` | 创建任务执行追踪表 |
+
+## 视频会议 — livekit/
+
+单节点 `livekit-server` v1.13.11 SFU，供 `mediation-ai` 会议模块、`mediation-web` 房间页与 `livekit-worker` 转录服务使用。
+
+```powershell
+cd livekit
+Copy-Item .env.example .env      # 跨机部署先改 LIVEKIT_NODE_IP
+.\deploy.ps1                      # 渲染 livekit.yaml + 起 Redis + 起 LiveKit + 等 GET / 200
+.\deploy.ps1 -Action verify       # 冒烟验证
+```
+
+要点：`deploy.ps1`/`deploy.sh` 负责按 `.env` 渲染 `livekit.yaml`（LiveKit 不展开 YAML 变量）；`LIVEKIT_NODE_IP` 必须设为客户端可达 IP；`REDIS_MODE=internal|external` 可选；`GET /` 返回 200 即存活（无 `/health`）。详见 [livekit/README.md](livekit/README.md)。
+
+## 文本识别 — paddle/（PP-OCRv6）
+
+PP-OCRv6 超轻量文本识别，CPU 推理、零显存，经 Nginx 反代 + `X-API-Key` 鉴权对外暴露（容器内 OCR 只绑 `127.0.0.1`）。
+
+```powershell
+cd paddle
+.\scripts\deploy.ps1             # 生成随机 API_KEY -> 构建镜像 -> 启动 -> 等健康
+.\scripts\verify.ps1             # 鉴权 401 + OCR 文本识别
+```
+
+接口：`POST http://localhost/ocr/v6/ocr`（multipart `image`）、`/ocr/v6/health`，均需 `X-API-Key`。权重在构建期烘焙进镜像（约 177MB），运行期不再联网。详见 [paddle/README.md](paddle/README.md)。
+
+## 人脸比对 — compreface/（SP-3）
+
+CompreFace 自托管人脸比对（Exadel 开源自托管平台，Apache-2.0），自定义 `compreface-core` 镜像（YuNet 检测 + SFace 识别，Apache-2.0 ONNX 权重）。**仅提供 1:1 `verification` 与 `detection`**，1:N 在 nginx 层 404 拒绝；平台不建人脸底库、不持久化向量。
+
+```powershell
+cd compreface
+.\scripts\build-core.ps1         # 一次性构建自定义 core 镜像
+Copy-Item .env.example .env      # 或让 deploy.ps1 自动生成随机 API_KEY
+.\scripts\deploy.ps1             # compose up -d + 等 core/nginx healthy
+.\scripts\verify.ps1             # 9 项契约验证
+```
+
+接口：经 `:8050` 带外层 `X-API-Key` ——
+`POST /face/api/v1/detection/detect`、`POST /face/api/v1/verification/verify`。
+双层密钥：业务侧只见外层 `API_KEY`，CompreFace 服务 key 由 nginx 按路径注入（detection 注 DET key、verification 注 VERIFY key）。数据库复用宿主 PostgreSQL（库 `compreface`）。
+
+> **门禁纪律**：G0–G3 未全过前 `MEETING_FACE_POC_PASSED` 恒为 `false`，不接业务链路。当前（2026-11-07）用户已人工置位 `MEETING_FACE_POC_PASSED=true` / `MEETING_G3_VIDEO=true` / `MEETING_FACE_ENABLED=true` 阈值 `0.55`（联调值，样本不足），但真人 G0/G1/G2 报告与 G3 法务/运维签字仍待补。详见 [compreface/README.md](compreface/README.md)。
+
+## 声学情感 — ser/（SP-4）
+
+`emotion2vec_plus_large` 声学情感识别，推理容器（CPU 或 GPU）＋ Nginx 反代鉴权；输出平台 5 类 `{calm,anxious,agitated,anger,threat}`，3s 全静音拒答（不降级为 `calm`）。
+
+```powershell
+cd ser
+Copy-Item .env.example .env      # 或让 deploy.ps1 生成随机 API_KEY
+.\scripts\deploy.ps1             # build + up -d + 等 healthy (900s)
+.\scripts\verify.ps1             # 五段契约验证
+```
+
+接口：经 `:8020/ser` 带 `X-API-Key` —— `POST /ser/v1/audio/emotion`（multipart `file`/`sample_rate`/`language`）、`GET /ser/health`；免鉴权探针 `/ser-nginx-health`。
+
+> 版本分支：**CPU 分支**长音频 P95 远超 1500ms（§8.4 延迟门禁 FAIL）；**GPU 分支 A**（`torch 2.7.1+cu128`、`emotion2vec:gpu-cu128`、项目名 `ser-gpu`、端口 8022/8023）预热后 P95 ≤566ms（PASS），但冷启动首轮不达标、须就绪探针预热。需 `Blackwell sm_120` 必须用 cu128。当前开关仍 `false`，未接入业务链路。详见 [ser/README.md](ser/README.md)。
+
+## 运维 / 评测脚本 — tools/
+
+| 子目录 / 脚本 | 作用 |
+|---------------|------|
+| `tools/e2e/face-verify-e2e.js` | 端到端人脸核验脚本（Node，依赖 `package.json`） |
+| `tools/g01/g0-check-log.ps1` · `g1-eval-frames.ps1` | G0/G1 门禁取证：检查 `livekit-worker` 视频轨日志、评估帧样本 |
+| `tools/voiceprint/g0-probe.ps1` | 声纹探针（G0 可用性探测） |
+| `tools/uaa-restart/` | UAA 重启日志（`uaa.out.log` / `uaa.err.log`） |
+| `tools/rotate-login-key.ps1` | 登录密钥轮换 |
+
+`tools/g01/README.md` 与 `tools/voiceprint/README.md` 含各自取证流程说明。
+
+## 通用部署约定
+
+- **一键脚本形态**：各组件提供 `deploy.ps1`（Windows/PowerShell）+ `deploy.sh`（Linux/WSL）或 PowerShell 专用脚本；首次运行自动从 `.env.example` 生成 `.env` 并注入随机 `API_KEY`（外层调用凭证）。
+- **鉴权**：OCR / 人脸 / 声学三类推理服务统一用 Nginx 反代 + 请求头 `X-API-Key` 鉴权（缺失/错误返回 401/403），推理容器只绑 `127.0.0.1` 防直连绕过。
+- **健康检查**：推理容器自带 `healthcheck`；对外暴露免鉴权探针（`/nginx-health`、`/ser-nginx-health`、`/face-nginx-health`）。
+- **墙内构建**：Docker daemon 若继承系统死代理（`http.docker.internal:3128`）会导致镜像/权重下载失败，需置 `ProxyEnable=0` 并重启 Docker Desktop，或配置 `registry-mirrors`；PyPI 走清华源、Docker 镜像走 DaoCloud/阿里云中转。
+- **门禁纪律**：AI 能力组件（compreface / ser / 人脸 OCR 链路）均带上线开关，未通过对应 G0–G3 门禁前不得修改开关接入业务链路。
