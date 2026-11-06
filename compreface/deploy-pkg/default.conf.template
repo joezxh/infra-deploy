@@ -1,0 +1,61 @@
+# CompreFace 外层反代：唯一对外入口 + API Key 鉴权
+# 结构照抄 mediation-deploy/paddle/nginx/default.conf.template。
+# 官方 nginx 镜像启动时会把本文件 envsubst 后写入 /etc/nginx/conf.d/default.conf，
+# 仅 ${VAR} 形式被替换；$host、$http_x_api_key 等 nginx 变量保持原样。
+#
+# 路径映射：外部 /face/api/v1/... -> 剥掉 /face 前缀 -> CompreFace 原生 /api/v1/...
+# 双层 key：业务调用方持 X-API-Key（外层校验），CompreFace 自身 x-api-key 由本反代注入，
+#          业务侧不接触服务 key，便于单独轮换与回收。
+# 注意：CompreFace 的 key 与服务类型绑定（DETECTION/VERIFY 各一个），
+#      detection 与 verification 两个 location 必须注入不同的服务 key。
+#
+# !! 本文件对 CompreFace 原生路由的假设待 scripts/verify.ps1 实测确认 !!
+
+server {
+    listen 80;
+    server_name _;
+    default_type application/json;
+
+    # 会中帧长边 640 的 JPEG 远小于此；上限故意收紧，降低大 body 攻击面
+    client_max_body_size 4m;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+    proxy_buffering off;
+
+    # 免鉴权存活探针（只证明 nginx 活着，不证明模型就绪）
+    location = /face-nginx-health {
+        return 200 '{"status":"ok","service":"compreface-nginx"}';
+    }
+
+    # 人脸检测与 1:1 比对。禁止把 recognition / subjects 相关路径暴露到外网：
+    # SP-3 明确 1:N 检索为红线，平台只使用 verification 1:1。
+    location /face/api/v1/detection/ {
+        if ($http_x_api_key != "${API_KEY}") {
+            return 401 '{"error":"unauthorized","message":"missing or invalid X-API-Key"}';
+        }
+        proxy_pass ${COMPREFACE_UPSTREAM}/api/v1/detection/;
+        proxy_set_header x-api-key "${COMPREFACE_DET_KEY}";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /face/api/v1/verification/ {
+        if ($http_x_api_key != "${API_KEY}") {
+            return 401 '{"error":"unauthorized","message":"missing or invalid X-API-Key"}';
+        }
+        proxy_pass ${COMPREFACE_UPSTREAM}/api/v1/verification/;
+        proxy_set_header x-api-key "${COMPREFACE_API_KEY}";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 其余一律 404：Web 控制台、admin、recognition/subjects、数据库都不对外
+    location / {
+        return 404 '{"error":"not found","routes":["/face-nginx-health","/face/api/v1/detection/detect","/face/api/v1/verification/verify"]}';
+    }
+}

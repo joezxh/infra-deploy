@@ -1,0 +1,44 @@
+- Generating browser application bundles...
+(node:21360) [DEP0111] DeprecationWarning: Access to process.binding('http_parser') is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ Browser application bundle generation complete.
+
+Initial Chunk Files                                                                                              | Names                                                                                                         |      Size
+vendor.js                                                                                                        | vendor                                                                                                        |   5.46 MB
+main.js                                                                                                          | main                                                                                                          |   1.16 MB
+polyfills.js                                                                                                     | polyfills                                                                                                     | 599.11 kB
+styles.css, styles.js                                                                                            | styles                                                                                                        | 593.77 kB
+runtime.js                                                                                                       | runtime                                                                                                       |  10.85 kB
+
+| Initial Total                                                                                                 |   7.79 MB
+
+Lazy Chunk Files                                                                                                 | Names                                                                                                         |      Size
+pages-model-dashboard-model-dashboard-module.js                                                                  | pages-model-dashboard-model-dashboard-module                                                                  |   2.50 MB
+pages-manage-collection-manage-collection-module.js                                                              | pages-manage-collection-manage-collection-module                                                              | 291.68 kB
+pages-create-application-wizard-create-application-wizard-module.js                                              | pages-create-application-wizard-create-application-wizard-module                                              | 226.32 kB
+pages-application-application-module.js                                                                          | pages-application-application-module                                                                          | 177.10 kB
+default~pages-application-application-module~pages-dashboard-dashboard-module.js                                 | default~pages-application-application-module~pages-dashboard-dashboard-module                                 | 176.61 kB
+default~pages-demo-demo-module~pages-test-model-test-model-module.js                                             | default~pages-demo-demo-module~pages-test-model-test-model-module                                             | 168.39 kB
+pages-sign-up-sign-up-module.js                                                                                  | pages-sign-up-sign-up-module                                                                                  | 132.25 kB
+pages-login-login-module.js                                                                                      | pages-login-login-module                                                                                      | 117.27 kB
+default~pages-application-application-module~pages-test-model-test-model-module.js                               | default~pages-application-application-module~pages-test-model-test-model-module                               |  50.56 kB
+default~pages-application-application-module~pages-dashboard-dashboard-module~pages-manage-collectio~fc65b455.js | default~pages-application-application-module~pages-dashboard-dashboard-module~pages-manage-collectio~fc65b455 |  34.28 kB
+default~pages-demo-demo-module~pages-manage-collection-manage-collection-module~pages-test-model-tes~c00d7e88.js | default~pages-demo-demo-module~pages-manage-collection-manage-collection-module~pages-test-model-tes~c00d7e88 |  25.84 kB
+pages-test-model-test-model-module.js                                                                            | pages-test-model-test-model-module                                                                            |  20.51 kB
+pages-dashboard-dashboard-module.js                                                                              | pages-dashboard-dashboard-module                                                                              |  19.18 kB
+pages-demo-demo-module.js                                                                                        | pages-demo-demo-module                                                                                        |  15.26 kB
+default~pages-application-application-module~pages-model-dashboard-model-dashboard-module.js                     | default~pages-application-application-module~pages-model-dashboard-model-dashboard-module                     |  13.60 kB
+pages-password-recovery-password-recovery-module.js                                                              | pages-password-recovery-password-recovery-module                                                              |   9.51 kB
+common.js                                                                                                        | common                                                                                                        |   6.57 kB
+
+Build at: 2026-11-05T09:25:54.633Z - Hash: 105ab136c6b4a1146586 - Time: 46813ms
+
+Warning: D:\work\mediation_platform\mediation-deploy\compreface\build\CompreFace\ui\node_modules\ng2-charts\fesm2015\ng2-charts.js depends on 'chart.js'. CommonJS or AMD dependencies can cause optimization bailouts.
+For more info see: https://angular.io/guide/build#configuring-commonjs-dependencies
+
+
+
+** Angular Live Development Server is listening on 127.0.0.1:4200, open your browser on http://127.0.0.1:4200/ **
+
+
+√ Compiled successfully.

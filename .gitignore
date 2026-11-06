@@ -1,0 +1,11 @@
+# 本地密钥与凭据：严禁入库
+# 例：登录密码 RSA 私钥（uaa.security.login-rsa-private-key-file 指向此处）
+secrets/
+# 各部署件的本地 env（含 API Key，禁止入库；样例 .env.example 不受影响）
+**/.env
+**/.env.bak-*
+
+# 前端联调工具的本地依赖与产物
+tools/e2e/node_modules/
+tools/e2e/shots/
+tools/e2e/package-lock.json

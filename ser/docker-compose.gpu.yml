@@ -1,0 +1,65 @@
+# emotion2vec GPU 部署编排（分支 A）：推理容器（GPU）+ Nginx 反代鉴权
+# 与 docker-compose.yml(CPU) 同构，仅：
+#   * build.dockerfile -> Dockerfile.gpu, image -> emotion2vec:gpu
+#   * emotion2vec 加 nvidia device reservation，SER_DEVICE 默认 cuda:0
+#   * 端口改为 8022/8023，容器名加 -gpu 后缀，避免与现有 CPU 部署(8021/8020)冲突
+#
+# 启动：docker compose -f docker-compose.gpu.yml up -d --build
+# 注意：必须与 CPU 编排隔离，否则 compose 会把 emotion2vec / ser-nginx 视为同项目 orphan 并误停。
+#   1) 独立 project 名 ser-gpu；2) GPU 专用变量写死，不再读 .env（.env 里是 CPU 配置）。
+
+name: ser-gpu
+
+services:
+  emotion2vec-gpu:
+    build:
+      context: ./emotion2vec
+      dockerfile: Dockerfile.gpu
+      args:
+        SER_MODEL_ID: iic/emotion2vec_plus_large
+    image: emotion2vec:gpu-cu128
+    container_name: emotion2vec-gpu
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8022:8000"
+    environment:
+      SER_MODEL_ID: iic/emotion2vec_plus_large
+      SER_DEVICE: cuda:0                    # 分支 A：GPU（不读 .env 的 cpu）
+      SER_MAX_INFLIGHT: ${SER_MAX_INFLIGHT:-2}
+      SER_TORCH_THREADS: ${SER_TORCH_THREADS:-8}
+    volumes:
+      - ./models:/models:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${SER_MEM_LIMIT:-8g}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ser-nginx-gpu:
+    image: ${NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
+    container_name: ser-nginx-gpu
+    restart: unless-stopped
+    depends_on:
+      - emotion2vec-gpu
+    ports:
+      - "8023:80"
+    environment:
+      API_KEY: ${API_KEY:?请先在 .env 中设置 API_KEY}
+      SER_UPSTREAM: http://emotion2vec-gpu:8000
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ser-nginx-health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

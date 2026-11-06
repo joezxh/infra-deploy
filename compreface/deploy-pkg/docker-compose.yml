@@ -1,0 +1,144 @@
+# CompreFace 自托管 1:1 人脸比对服务（人像到场一致性核验 / SP-3）
+#
+# 自定义 compreface-core（YuNet 检测 + SFace 识别，OpenCV Zoo ONNX，Apache-2.0）
+# 数据库复用宿主已运行的 PostgreSQL（postgres/postgres，库名 compreface，
+# 经 Docker 网关 host.docker.internal:5432 访问，不再内置 postgres 容器）。
+#
+# 端口约定（避开已占用端口：OCR 8011 / SER 8020,8021 / paddle-nginx 8080 / 80）：
+#   compreface-fe     127.0.0.1:${COMPREFACE_UI_PORT:-8051}:80   仅回环，供运维首次建应用/生成服务 key
+#   compreface-nginx  0.0.0.0:${COMPREFACE_NGINX_PORT:-8050}:80  唯一对外入口，X-API-Key 鉴权
+#
+# 对外路径（均需 X-API-Key；nginx 剥掉 /face 前缀后转发到 CompreFace 原生 /api/v1/...）：
+#   POST /face/api/v1/detection/detect     人脸检测
+#   POST /face/api/v1/verification/verify  1:1 两图比对（SP-3 唯一允许使用的能力）
+#   GET  /face-nginx-health                免鉴权存活探针
+#
+# 隐私边界（与 SP-3 修订总纲 §A-T8 / §9 一致）：
+#   * 平台**禁止启用 recognition / subject / face collection 的 1:N 能力**，只走 verification 1:1，
+#     使 CompreFace 侧不因本平台产生当事人人脸底库；1:1 比对由 CompreFace 在内存中用两图
+#     embedding 的欧氏距离完成，平台不持久化任何向量。
+#   * 卷的留存期、备份加密与删除流程是 G3 合规必答项，见 README。
+#
+# 注：本部署件已落地（自定义 core 镜像 + 权重已下载），但 G0-G3 门禁未全部通过前
+#     MEETING_FACE_POC_PASSED 必须为 false，平台侧不得置 video.available=true。
+
+services:
+  # ---------------- 推理核心（自定义镜像：YuNet 检测 + SFace 识别） ----------------
+  compreface-core:
+    # 自定义构建的镜像：基于 exadel/compreface-core:1.2.0 注入 yunet/sface 插件。
+    # 构建见 build/core-build/ 与 scripts/build-core.ps1；tag 须与 .env 的 COMPREFACE_CORE_IMAGE 一致。
+    image: ${COMPREFACE_CORE_IMAGE:?请在 .env 设置 COMPREFACE_CORE_IMAGE 为自定义构建的 core 镜像}
+    container_name: compreface-core
+    restart: unless-stopped
+    environment:
+      ML_PORT: 3000
+      FACE_DET_SIZE: ${FACE_DET_SIZE:-640}
+      FACE_MIN_DET_SCORE: ${FACE_MIN_DET_SCORE:-0.5}
+      # 选择 YuNet 检测 + SFace 识别插件（由 build/core-build 注入镜像）
+      FACE_DETECTION_PLUGIN: ${FACE_DETECTION_PLUGIN:-yunet.FaceDetector@yunet_2023mar}
+      CALCULATION_PLUGIN: ${CALCULATION_PLUGIN:-sface.Calculator@sface_2021dec}
+      # 仅检测 + 1:1 识别；禁用 landmarks/age/gender/mask/pose 等额外插件（其权重在墙内不可得）。
+      # 注意默认值必须为空（不能写 ""）：compose 会把引号当字面字符传进容器，
+      # 而 core 的 managers.py 会尝试 import 名为 `""` 的插件模块导致启动失败。
+      EXTRA_PLUGINS: ${EXTRA_PLUGINS:-}
+      # 权重挂载路径（compose 挂载 ./models:/opt/face-weights:ro）
+      # 清空代理，避免继承宿主/daemon 的死代理桥接（http.docker.internal:3128）
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "localhost,127.0.0.1,host.docker.internal"
+    volumes:
+      - ${FACE_WEIGHTS_DIR:-./models}:/opt/face-weights:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+
+  # ---------------- 管理服务（创建应用 / 生成服务 key） ----------------
+  compreface-admin:
+    image: ${COMPREFACE_ADMIN_IMAGE:-exadel/compreface-admin:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-admin
+    restart: unless-stopped
+    depends_on:
+      - compreface-core
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-dev}
+      # 关键：Spring 只认 POSTGRES_URL（application.yml 的占位符），POSTGRES_HOST 无效
+      POSTGRES_URL: jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:5432/${PG_DB:-compreface}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      ENABLE_EMAIL: ${ENABLE_EMAIL:-false}
+      # 注意：Spring 的 multipart 配置直接取本值（默认 5MB），必须带单位
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-10MB}
+      MAX_REQUEST_SIZE: ${MAX_REQUEST_SIZE:-10MB}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+
+  # ---------------- 对外 REST API（detection / verification） ----------------
+  compreface-api:
+    image: ${COMPREFACE_API_IMAGE:-exadel/compreface-api:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-api
+    restart: unless-stopped
+    depends_on:
+      compreface-core:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-dev}
+      # 关键：Spring 只认 POSTGRES_URL（application.yml 的占位符），POSTGRES_HOST 无效
+      POSTGRES_URL: jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:5432/${PG_DB:-compreface}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      FRS_CORE_URL: http://compreface-core:3000
+      # 注意：Spring 的 multipart 配置直接取本值（默认 5MB），必须带单位
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-10MB}
+      MAX_REQUEST_SIZE: ${MAX_REQUEST_SIZE:-10MB}
+      CONNECTION_TIMEOUT: ${CONNECTION_TIMEOUT:-10000}
+      READ_TIMEOUT: ${READ_TIMEOUT:-60000}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+
+  # ---------------- Web 控制台 ----------------
+  # 默认仅回环暴露；需要内网任意机器访问时，在 .env 设 COMPREFACE_UI_BIND=0.0.0.0。
+  # 注意：管理控制台无外层 X-API-Key 保护，放开前须确认网络边界（ufw 白名单/VPN 内网）。
+  compreface-fe:
+    image: ${COMPREFACE_FE_IMAGE:-exadel/compreface-fe:${COMPREFACE_VERSION:-1.2.0}}
+    container_name: compreface-fe
+    restart: unless-stopped
+    depends_on:
+      - compreface-api
+      - compreface-admin
+    ports:
+      - "${COMPREFACE_UI_BIND:-127.0.0.1}:${COMPREFACE_UI_PORT:-8051}:80"
+    environment:
+      # FE 内置 nginx 模板需要这几个变量（缺失会导致 envsubst 出空值、容器启动崩溃）
+      CLIENT_MAX_BODY_SIZE: ${MAX_REQUEST_SIZE:-10}M
+      PROXY_READ_TIMEOUT: ${READ_TIMEOUT:-60000}ms
+      PROXY_CONNECT_TIMEOUT: ${CONNECTION_TIMEOUT:-10000}ms
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+  compreface-nginx:
+    image: ${NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
+    container_name: compreface-nginx
+    restart: unless-stopped
+    depends_on:
+      - compreface-fe
+    ports:
+      - "${COMPREFACE_NGINX_PORT:-8050}:80"
+    environment:
+      API_KEY: ${API_KEY:?请在 .env 设置 API_KEY}
+      # CompreFace 自身服务 key 由 compose 注入，不暴露给业务调用方
+      # （key 与服务类型绑定：DETECTION / VERIFY 各一个）
+      COMPREFACE_API_KEY: ${COMPREFACE_API_KEY:?请先创建 Face Verification 服务并填入其 key}
+      COMPREFACE_DET_KEY: ${COMPREFACE_DET_KEY:?请先创建 Face Detection 服务并填入其 key}
+      COMPREFACE_UPSTREAM: ${COMPREFACE_UPSTREAM:-http://compreface-fe:80}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      # 必须用 127.0.0.1：alpine 下 localhost 优先解析 ::1，busybox wget 会误判不健康
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/face-nginx-health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

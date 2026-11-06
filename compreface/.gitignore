@@ -1,0 +1,16 @@
+# 权重（OpenCV Zoo ONNX，大文件，不入库；由 download-weights.ps1 经代理获取）
+models/*.onnx
+
+# CompreFace 全量克隆源码不入库（过大，仅本地构建参考）；
+# build/core-build（yunet/sface 插件 + Dockerfile）是部署件本体，必须入库
+# build/CompreFace/
+
+# 本地环境变量与门禁置位备份（含密钥，禁止入库）
+.env
+.env.bak-*
+
+# 验证样例图（部署验证用，可内网自行准备，不入库）
+#samples/
+
+# 保留目录结构
+!models/.gitkeep

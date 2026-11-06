@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CompreFace Console — UI Prototype</title>
+<style>
+/* ============ Design Tokens ============ */
+:root{
+  --bg:#F7F8FA; --surface:#FFFFFF; --line:#E5E8EC; --line-strong:#D7DCE2;
+  --ink:#1B1F24; --ink-2:#5B6470; --ink-3:#98A1AC;
+  --accent:#0F766E; --accent-hover:#0C635C; --accent-soft:#E6F2F0;
+  --ok:#15803D; --ok-soft:#E8F5EC; --warn:#B45309; --danger:#BE4B48; --danger-soft:#FBEDEC;
+  --r-container:16px; --r-control:10px; --r-dialog:20px;
+  --shadow:0 12px 32px -18px rgba(27,31,36,.18);
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"SFMono-Regular",monospace;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:var(--font);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input{font-family:inherit}
+svg{display:block}
+.mono{font-family:var(--mono)}
+
+/* ============ Primitives ============ */
+.btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:var(--r-control);
+  font-size:13.5px;font-weight:600;transition:all .25s var(--ease);user-select:none}
+.btn:active{transform:translateY(1px) scale(.985)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-ghost{color:var(--ink-2);border:1px solid var(--line-strong);background:var(--surface)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-block{width:100%;justify-content:center}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.btn .spin{width:15px;height:15px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.field label{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.field .box{position:relative}
+.field input{width:100%;height:42px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r-control);
+  font-size:14px;color:var(--ink);background:var(--surface);outline:none;transition:border-color .2s,box-shadow .2s}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,118,110,.15)}
+.field.err input{border-color:var(--danger);box-shadow:0 0 0 3px rgba(190,75,72,.12)}
+.field .msg{font-size:12px;color:var(--danger);display:none}
+.field.err .msg{display:block}
+.field .hint{font-size:12px;color:var(--ink-3)}
+
+.badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;
+  font-size:11.5px;font-weight:600;letter-spacing:.02em}
+.badge .dot{width:6px;height:6px;border-radius:50%}
+.badge.verify{background:var(--accent-soft);color:var(--accent)}
+.badge.verify .dot{background:var(--accent)}
+.badge.detect{background:#EEF1FB;color:#3B5BCC}
+.badge.detect .dot{background:#3B5BCC}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.warn{background:#FBF3E4;color:var(--warn)}
+
+/* breathing status dot */
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);position:relative}
+.pulse::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid var(--ok);
+  opacity:0;animation:breath 2.4s var(--ease) infinite}
+@keyframes breath{0%{transform:scale(.5);opacity:.7}70%{transform:scale(1.25);opacity:0}100%{opacity:0}}
+
+/* staggered reveal */
+.reveal{opacity:0;transform:translateY(10px);animation:reveal .55s var(--ease) forwards;animation-delay:calc(var(--i,0)*70ms)}
+@keyframes reveal{to{opacity:1;transform:none}}
+
+/* ============ Language switch ============ */
+.lang{display:inline-flex;border:1px solid var(--line-strong);border-radius:999px;overflow:hidden;background:var(--surface)}
+.lang button{height:30px;padding:0 14px;font-size:12px;font-weight:600;color:var(--ink-2);transition:all .2s}
+.lang button.on{background:var(--ink);color:#fff}
+
+/* ============ Login view ============ */
+#view-login{position:fixed;inset:0;display:grid;grid-template-columns:45% 55%;background:var(--bg);z-index:40}
+#view-login.hidden{display:none}
+.brand-pane{background:#101418;color:#E7EAEE;position:relative;overflow:hidden;
+  display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 40px}
+.brand-pane::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(ellipse at 30% 20%,#000 30%,transparent 75%)}
+.brand-logo{display:flex;align-items:center;gap:12px;font-weight:700;font-size:18px;letter-spacing:.01em}
+.brand-logo .mark{width:34px;height:34px;border-radius:10px;background:var(--accent);display:grid;place-items:center}
+.brand-mid{max-width:380px}
+.brand-mid h1{font-size:30px;line-height:1.25;font-weight:700;letter-spacing:-.01em;margin-bottom:14px}
+.brand-mid p{color:#9AA3AE;font-size:14px;max-width:34ch}
+.brand-points{list-style:none;display:flex;flex-direction:column;gap:12px;margin-top:26px}
+.brand-points li{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#C6CCD4}
+.brand-points svg{flex:none;margin-top:2px}
+.brand-foot{font-size:12px;color:#6B7480;font-family:var(--mono)}
+.login-pane{display:flex;align-items:center;justify-content:center;padding:40px}
+.login-inner{width:400px;max-width:100%}
+.login-top{display:flex;justify-content:flex-end;margin-bottom:36px}
+.login-inner h2{font-size:24px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px}
+.login-inner .sub{color:var(--ink-2);font-size:13.5px;margin-bottom:30px}
+.login-meta{display:flex;justify-content:space-between;align-items:center;margin-top:22px}
+.login-meta a{font-size:13px;color:var(--accent);text-decoration:none;font-weight:600}
+.login-meta a:hover{text-decoration:underline}
+.signup{margin-top:34px;padding-top:22px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);text-align:center}
+.signup a{color:var(--accent);font-weight:600;text-decoration:none}
+@media (max-width:900px){#view-login{grid-template-columns:1fr}.brand-pane{display:none}}
+
+/* ============ App shell ============ */
+#view-app{display:none;min-height:100dvh;flex-direction:column}
+#view-app.on{display:flex}
+.toolbar{position:sticky;top:0;z-index:20;height:56px;background:var(--surface);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;padding:0 20px;gap:18px}
+.toolbar .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px}
+.toolbar .logo .mark{width:28px;height:28px;border-radius:8px;background:var(--accent);display:grid;place-items:center}
+.crumbs{color:var(--ink-3);font-size:13px;display:flex;align-items:center;gap:8px}
+.crumbs b{color:var(--ink);font-weight:600}
+.toolbar .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.userchip{display:flex;align-items:center;gap:10px}
+.userchip .ava{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#0F766E,#134E4A);
+  color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.userchip .nm{font-size:13px;font-weight:600}
+.userchip .rl{font-size:11px;color:var(--ink-3)}
+
+.shell{display:grid;grid-template-columns:220px 1fr;flex:1;min-height:0}
+.sidenav{border-right:1px solid var(--line);background:var(--surface);padding:18px 12px;display:flex;flex-direction:column;gap:4px}
+.sidenav .grp{font-size:10.5px;font-weight:700;letter-spacing:.09em;color:var(--ink-3);text-transform:uppercase;padding:0 12px;margin:10px 0 6px}
+.navitem{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:var(--r-control);
+  font-size:13.5px;font-weight:600;color:var(--ink-2);position:relative;transition:all .2s var(--ease);text-align:left;width:100%}
+.navitem:hover{background:#F1F3F5;color:var(--ink)}
+.navitem.on{background:var(--accent-soft);color:var(--accent)}
+.navitem.on::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--accent)}
+.sidenav .gate{margin-top:auto;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:11.5px;color:var(--ink-3);line-height:1.5}
+.sidenav .gate b{color:var(--warn);display:block;margin-bottom:2px}
+main{padding:30px 36px 60px;max-width:1120px;width:100%}
+.page-h{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px;gap:16px;flex-wrap:wrap}
+.page-h h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.page-h .desc{color:var(--ink-2);font-size:13px;margin-top:3px}
+.page-actions{display:flex;gap:10px}
+
+/* ============ Dashboard ============ */
+.searchbar{display:flex;gap:12px;margin-bottom:20px}
+.searchbar .wrap{position:relative;flex:1;max-width:380px}
+.searchbar input{width:100%;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-control);
+  padding:0 14px 0 38px;font-size:13.5px;outline:none;background:var(--surface);transition:all .2s}
+.searchbar input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,118,110,.15)}
+.searchbar .ic{position:absolute;left:12px;top:11px;color:var(--ink-3)}
+.apps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+@media (max-width:1100px){.apps-grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:760px){.apps-grid{grid-template-columns:1fr}.shell{grid-template-columns:64px 1fr}.sidenav .txt,.sidenav .grp,.sidenav .gate{display:none}.navitem{justify-content:center;padding:0}}
+.app-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-container);padding:20px;
+  cursor:pointer;transition:all .25s var(--ease);position:relative}
+.app-card:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:var(--shadow)}
+.app-card .nm{font-weight:700;font-size:15px;margin-bottom:4px}
+.app-card .meta{font-size:12px;color:var(--ink-3);font-family:var(--mono)}
+.app-card .row{display:flex;gap:8px;margin:14px 0 12px;flex-wrap:wrap}
+.app-card .stat{border-top:1px solid var(--line);padding-top:12px;display:flex;justify-content:space-between;align-items:baseline}
+.app-card .stat .k{font-size:11.5px;color:var(--ink-3)}
+.app-card .stat .v{font-family:var(--mono);font-size:15px;font-weight:600}
+.empty{grid-column:1/-1;border:1.5px dashed var(--line-strong);border-radius:var(--r-container);
+  padding:56px 20px;text-align:center;display:none}
+.empty.on{display:block}
+.empty .t{font-weight:700;font-size:15px;margin:14px 0 4px}
+.empty .d{color:var(--ink-2);font-size:13px;margin-bottom:18px}
+.empty svg{margin:0 auto}
+
+/* ============ Detail ============ */
+.keybar{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-control);padding:12px 16px;margin-bottom:22px;flex-wrap:wrap}
+.keybar .lbl{font-size:12px;font-weight:600;color:var(--ink-2)}
+.keybar code{font-family:var(--mono);font-size:13px;background:#F1F3F5;padding:5px 10px;border-radius:7px;color:var(--ink)}
+.iconbtn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2);transition:all .2s}
+.iconbtn:hover{background:#F1F3F5;color:var(--ink)}
+.iconbtn.done{color:var(--ok)}
+.svc-list{display:flex;flex-direction:column;gap:14px}
+.svc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-container);padding:20px 22px;
+  display:grid;grid-template-columns:1fr auto;gap:8px 20px;align-items:center;transition:all .25s var(--ease)}
+.svc:hover{border-color:var(--line-strong);box-shadow:var(--shadow)}
+.svc .head{display:flex;align-items:center;gap:12px}
+.svc .nm{font-weight:700;font-size:15px}
+.svc .stats{display:flex;gap:34px;margin-top:8px}
+.svc .stats .k{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+.svc .stats .v{font-family:var(--mono);font-size:16px;font-weight:600;margin-top:2px}
+.svc .stats .v small{font-size:11px;color:var(--ink-3);font-weight:400}
+
+/* ============ Test view ============ */
+.test-grid{display:grid;grid-template-columns:380px 1fr;gap:22px;align-items:start}
+@media (max-width:1000px){.test-grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-container);padding:22px}
+.panel h3{font-size:13px;font-weight:700;letter-spacing:.02em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.drop{border:1.5px dashed var(--line-strong);border-radius:12px;padding:30px 18px;text-align:center;
+  cursor:pointer;transition:all .2s var(--ease)}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop .t{font-size:13px;font-weight:600;margin-top:10px}
+.drop .d{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.thumb{display:flex;align-items:center;gap:12px;background:#F8FAF9;border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;margin-top:12px;display:none}
+.thumb.on{display:flex;animation:reveal .4s var(--ease)}
+.thumb .im{width:44px;height:44px;border-radius:8px;background:linear-gradient(135deg,#D8DEE4,#B9C2CB);flex:none}
+.thumb .fn{font-size:12.5px;font-weight:600}
+.thumb .fs{font-size:11px;color:var(--ink-3);font-family:var(--mono)}
+.res-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 20px;color:var(--ink-3)}
+.res-empty .t{font-weight:600;color:var(--ink-2);font-size:13.5px;margin-top:14px}
+.res-empty .d{font-size:12px;margin-top:2px;text-align:center;max-width:36ch}
+.skeleton{display:none;padding:10px 0}
+.skeleton.on{display:block}
+.sk{height:16px;border-radius:6px;background:linear-gradient(90deg,#EEF0F2 25%,#F7F8FA 50%,#EEF0F2 75%);
+  background-size:200% 100%;animation:shimmer 1.3s linear infinite;margin-bottom:14px}
+@keyframes shimmer{to{background-position:-200% 0}}
+.result{display:none}
+.result.on{display:block;animation:reveal .5s var(--ease)}
+.gauge-row{display:flex;align-items:center;gap:26px;flex-wrap:wrap}
+.gauge{position:relative;width:150px;height:150px;flex:none}
+.gauge svg{transform:rotate(-90deg)}
+.gauge .track{stroke:#EDF0F2}
+.gauge .bar{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset 1.4s var(--ease)}
+.gauge .val{position:absolute;inset:0;display:grid;place-items:center}
+.gauge .val .n{font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:-.02em}
+.gauge .val .l{font-size:11px;color:var(--ink-3);text-align:center}
+.verdict{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:999px;font-weight:700;font-size:13px}
+.verdict.same{background:var(--ok-soft);color:var(--ok)}
+.verdict.diff{background:var(--danger-soft);color:var(--danger)}
+.gauge-side .cap{font-size:12px;color:var(--ink-2);margin-top:10px;max-width:40ch}
+details.json{border:1px solid var(--line);border-radius:10px;margin-top:20px;overflow:hidden}
+details.json summary{cursor:pointer;padding:10px 14px;font-size:12.5px;font-weight:600;color:var(--ink-2);
+  background:#FAFBFC;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.json summary::-webkit-details-marker{display:none}
+details.json pre{padding:14px;font-family:var(--mono);font-size:11.5px;line-height:1.6;color:#33414E;
+  background:#FBFCFD;overflow:auto;max-height:220px}
+.tabs{display:inline-flex;background:#EEF0F2;border-radius:999px;padding:3px;gap:2px;margin-bottom:20px}
+.tabs button{height:32px;padding:0 16px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--ink-2);transition:all .2s}
+.tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(27,31,36,.12)}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);background:var(--ink);color:#fff;
+  padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:all .35s var(--ease);z-index:60;display:flex;gap:8px;align-items:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+.footer{border-top:1px solid var(--line);padding:16px 36px;font-size:11.5px;color:var(--ink-3);
+  display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="view-login">
+  <aside class="brand-pane">
+    <div class="brand-logo">
+      <span class="mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 19c1-3 3-4.5 5.5-4.5S16.5 16 17.5 19"/></svg></span>
+      <span data-i18n="brand.name">CompreFace Console</span>
+    </div>
+    <div class="brand-mid">
+      <h1 data-i18n="brand.h1">Verification-first face biometrics, self-hosted.</h1>
+      <p data-i18n="brand.sub">YuNet detection · SFace 128-d embedding · in-memory 1:1 matching.</p>
+      <ul class="brand-points">
+        <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3FA796" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="brand.p1">1:1 verification only — 1:N search is blocked at the gateway</span></li>
+        <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3FA796" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="brand.p2">No face gallery is built on this platform</span></li>
+        <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3FA796" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="brand.p3">Embeddings stay in memory, never persisted</span></li>
+      </ul>
+    </div>
+    <div class="brand-foot">core 1.2.0 · yunet_2023mar · sface_2021dec</div>
+  </aside>
+  <section class="login-pane">
+    <div class="login-inner">
+      <div class="login-top"><div class="lang" id="lang1"></div></div>
+      <h2 data-i18n="login.title">Log in to the console</h2>
+      <p class="sub" data-i18n="login.sub">Manage applications, service keys and run test comparisons.</p>
+      <form id="login-form" novalidate>
+        <div class="field" id="f-email">
+          <label data-i18n="login.email">Email</label>
+          <div class="box"><input type="email" id="in-email" value="ops@mediation.local" autocomplete="username"></div>
+          <span class="msg" data-i18n="login.errEmail">Enter a valid email address</span>
+        </div>
+        <div class="field" id="f-pwd">
+          <label data-i18n="login.password">Password</label>
+          <div class="box"><input type="password" id="in-pwd" placeholder="········" autocomplete="current-password"></div>
+          <span class="msg" data-i18n="login.errPwd">Password is required (min 8 characters)</span>
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-login" type="submit"><span data-i18n="login.submit">Log in</span></button>
+      </form>
+      <div class="login-meta">
+        <a href="#" onclick="return false" data-i18n="login.forgot">Forgot password?</a>
+        <span class="mono" style="font-size:11px;color:var(--ink-3)">v1.2.0</span>
+      </div>
+      <p class="signup"><span data-i18n="login.noAcct">No account?</span> <a href="#" onclick="return false" data-i18n="login.signup">Sign up</a></p>
+    </div>
+  </section>
+</div>
+
+<!-- ================= APP SHELL ================= -->
+<div id="view-app">
+  <header class="toolbar">
+    <span class="logo">
+      <span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 19c1-3 3-4.5 5.5-4.5S16.5 16 17.5 19"/></svg></span>
+      CompreFace
+    </span>
+    <span class="crumbs" id="crumbs"><span data-i18n="nav.apps">Applications</span></span>
+    <div class="right">
+      <div class="lang" id="lang2"></div>
+      <div class="userchip">
+        <div style="text-align:right;line-height:1.25"><div class="nm">Lin Wenshu</div><div class="rl" data-i18n="role.owner">Owner</div></div>
+        <div class="ava">LW</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="sidenav">
+      <div class="grp" data-i18n="nav.workspace">Workspace</div>
+      <button class="navitem on" data-view="dashboard" onclick="go('dashboard')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+        <span class="txt" data-i18n="nav.apps">Applications</span>
+      </button>
+      <button class="navitem" data-view="test" onclick="go('test')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 3h6M10 3v6.3L4.7 18a2.4 2.4 0 0 0 2.1 3.6h10.4a2.4 2.4 0 0 0 2.1-3.6L14 9.3V3"/><path d="M7.5 15h9"/></svg>
+        <span class="txt" data-i18n="nav.test">Test a service</span>
+      </button>
+      <div class="gate"><b data-i18n="gate.title">PoC environment</b><span data-i18n="gate.desc">Not connected to business flows. G1 / G2 calibration pending.</span></div>
+    </nav>
+
+    <main>
+      <!-- ===== Dashboard ===== -->
+      <section id="page-dashboard">
+        <div class="page-h">
+          <div><h1 data-i18n="dash.title">Applications</h1><p class="desc" data-i18n="dash.desc">Each application groups the face services and keys it uses.</p></div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="toast(I18N[L]['dash.created'])">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            <span data-i18n="dash.create">Create application</span></button></div>
+        </div>
+        <div class="searchbar">
+          <div class="wrap">
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="q" type="text" data-i18n-ph="dash.search" placeholder="Search applications">
+          </div>
+          <span class="badge ok" style="align-self:center"><span class="dot"></span><span data-i18n="dash.healthy">All services healthy</span></span>
+        </div>
+        <div class="apps-grid" id="apps-grid"></div>
+      </section>
+
+      <!-- ===== Application detail ===== -->
+      <section id="page-detail" style="display:none">
+        <div class="page-h">
+          <div>
+            <div class="crumbs" style="margin-bottom:6px"><span data-i18n="nav.apps">Applications</span> / <b>mediation-face-verify</b></div>
+            <h1>mediation-face-verify</h1>
+            <p class="desc" data-i18n="det.desc">Created 2026-11-05 · 2 services</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost" onclick="go('test')"><span data-i18n="det.test">Open tester</span></button>
+          </div>
+        </div>
+        <div class="keybar">
+          <span class="lbl" data-i18n="det.key">Verification key</span>
+          <code id="keyval">00c8c39d-51bc-4d55-9fb7-473846acd43c</code>
+          <button class="iconbtn" id="btn-copy" title="Copy">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+          </button>
+          <button class="iconbtn" id="btn-mask" title="Show / hide">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
+          </button>
+          <span class="badge verify" style="margin-left:auto"><span class="dot"></span>VERIFY</span>
+        </div>
+        <div class="svc-list" id="svc-list"></div>
+      </section>
+
+      <!-- ===== Test model ===== -->
+      <section id="page-test" style="display:none">
+        <div class="page-h">
+          <div><h1 data-i18n="test.title">Test a service</h1><p class="desc" data-i18n="test.desc">Upload one photo per side. Exactly one face per image.</p></div>
+        </div>
+        <div class="tabs">
+          <button class="on" data-i18n="test.tabVerify" onclick="tab(this)">1:1 Verification</button>
+          <button data-i18n="test.tabDetect" onclick="tab(this)">Detection</button>
+        </div>
+        <div class="test-grid">
+          <div class="panel">
+            <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.7"/><path d="m21 15.5-3.8-3.8a1.6 1.6 0 0 0-2.3 0L9 17.5"/></svg><span data-i18n="test.source">Source image</span></h3>
+            <div class="drop" id="drop1" onclick="pick(this)">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#98A1AC" stroke-width="1.6" stroke-linecap="round" style="margin:0 auto"><path d="M12 16V4m0 0 4 4m-4-4L8 8"/><path d="M4 15v3a2.5 2.5 0 0 0 2.5 2.5h11A2.5 2.5 0 0 0 20 18v-3"/></svg>
+              <div class="t" data-i18n="test.drop">Drop an image here or click to browse</div>
+              <div class="d" data-i18n="test.hint">JPG / PNG · one face per image</div>
+            </div>
+            <h3 style="margin-top:20px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.7"/><path d="m21 15.5-3.8-3.8a1.6 1.6 0 0 0-2.3 0L9 17.5"/></svg><span data-i18n="test.target">Target image</span></h3>
+            <div class="drop" id="drop2" onclick="pick(this)">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#98A1AC" stroke-width="1.6" stroke-linecap="round" style="margin:0 auto"><path d="M12 16V4m0 0 4 4m-4-4L8 8"/><path d="M4 15v3a2.5 2.5 0 0 0 2.5 2.5h11A2.5 2.5 0 0 0 20 18v-3"/></svg>
+              <div class="t" data-i18n="test.drop">Drop an image here or click to browse</div>
+              <div class="d" data-i18n="test.hint">JPG / PNG · one face per image</div>
+            </div>
+            <button class="btn btn-primary btn-block" id="btn-run" style="margin-top:20px" onclick="runCompare()" disabled><span data-i18n="test.run">Run comparison</span></button>
+          </div>
+          <div class="panel">
+            <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h4l2.5-7 5 14 2.5-7h4"/></svg><span data-i18n="test.result">Result</span></h3>
+            <div class="res-empty" id="res-empty">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#C4CBD3" stroke-width="1.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg>
+              <div class="t" data-i18n="test.emptyT">No comparison yet</div>
+              <div class="d" data-i18n="test.emptyD">Pick a source and a target image, then run the comparison.</div>
+            </div>
+            <div class="skeleton" id="res-skel">
+              <div class="sk" style="width:40%"></div><div class="sk" style="width:85%"></div>
+              <div class="sk" style="width:70%"></div><div class="sk" style="width:50%"></div>
+            </div>
+            <div class="result" id="res-box">
+              <div class="gauge-row">
+                <div class="gauge">
+                  <svg width="150" height="150" viewBox="0 0 150 150">
+                    <circle class="track" cx="75" cy="75" r="64" fill="none" stroke-width="10"/>
+                    <circle class="bar" id="gbar" cx="75" cy="75" r="64" fill="none" stroke-width="10"
+                      stroke-dasharray="402.1" stroke-dashoffset="402.1"/>
+                  </svg>
+                  <div class="val"><div><div class="n" id="gnum">0.00</div><div class="l" data-i18n="test.similarity">Similarity</div></div></div>
+                </div>
+                <div class="gauge-side">
+                  <span class="verdict same" id="verdict"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="test.same">Same person</span></span>
+                  <p class="cap" data-i18n="test.cap">Calibrated threshold pending (G2). Value shown for pipeline verification only.</p>
+                  <div style="display:flex;gap:26px;margin-top:14px">
+                    <div><div class="k" style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em" data-i18n="test.latency">Latency</div><div class="v mono" style="font-size:16px;font-weight:600">2.53<small style="font-size:11px;color:var(--ink-3)"> s</small></div></div>
+                    <div><div class="k" style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em">Model</div><div class="v mono" style="font-size:16px;font-weight:600">sface_2021dec</div></div>
+                  </div>
+                </div>
+              </div>
+              <details class="json">
+                <summary><span data-i18n="test.resp">Response JSON</span><span class="mono" style="color:var(--ink-3);font-size:11px">200 OK</span></summary>
+<pre>{
+  "result": [ {
+    "source_image_face": { "box": { "probability": 0.9374 } },
+    "face_matches": [ { "box": { "probability": 0.9389 },
+                        "similarity": 0.9189 } ]
+  } ]
+}</pre>
+              </details>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <span>CompreFace 1.2.0 · yunet_2023mar + sface_2021dec · Apache-2.0</span>
+    <span data-i18n="foot.note">Intranet PoC — detection / verification only. 1:N routes return 404.</span>
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ================= i18n ================= */
+const I18N = {
+ "en": {
+  "brand.name":"CompreFace Console","brand.h1":"Verification-first face biometrics, self-hosted.",
+  "brand.sub":"YuNet detection · SFace 128-d embedding · in-memory 1:1 matching.",
+  "brand.p1":"1:1 verification only — 1:N search is blocked at the gateway",
+  "brand.p2":"No face gallery is built on this platform",
+  "brand.p3":"Embeddings stay in memory, never persisted",
+  "login.title":"Log in to the console","login.sub":"Manage applications, service keys and run test comparisons.",
+  "login.email":"Email","login.password":"Password","login.submit":"Log in",
+  "login.forgot":"Forgot password?","login.noAcct":"No account?","login.signup":"Sign up",
+  "login.errEmail":"Enter a valid email address","login.errPwd":"Password is required (min 8 characters)",
+  "login.loading":"Signing in",
+  "nav.workspace":"Workspace","nav.apps":"Applications","nav.test":"Test a service",
+  "role.owner":"Owner","gate.title":"PoC environment","gate.desc":"Not connected to business flows. G1 / G2 calibration pending.",
+  "dash.title":"Applications","dash.desc":"Each application groups the face services and keys it uses.",
+  "dash.create":"Create application","dash.search":"Search applications","dash.healthy":"All services healthy",
+  "dash.created":"Application created",
+  "dash.emptyT":"No matching applications","dash.emptyD":"Adjust the search, or create a new application to get started.",
+  "det.desc":"Created 2026-11-05 · 2 services","det.key":"Verification key","det.test":"Open tester",
+  "svc.verify":"Face Verification","svc.detect":"Face Detection","svc.requests":"requests / 24h",
+  "svc.latency":"p95 latency","svc.created":"created","svc.test":"Test",
+  "test.title":"Test a service","test.desc":"Upload one photo per side. Exactly one face per image.",
+  "test.tabVerify":"1:1 Verification","test.tabDetect":"Detection",
+  "test.source":"Source image","test.target":"Target image",
+  "test.drop":"Drop an image here or click to browse","test.hint":"JPG / PNG · one face per image",
+  "test.run":"Run comparison","test.running":"Comparing",
+  "test.result":"Result","test.emptyT":"No comparison yet","test.emptyD":"Pick a source and a target image, then run the comparison.",
+  "test.similarity":"Similarity","test.same":"Same person","test.diff":"Different persons",
+  "test.cap":"Calibrated threshold pending (G2). Value shown for pipeline verification only.",
+  "test.latency":"Latency","test.resp":"Response JSON",
+  "toast.copied":"Key copied to clipboard",
+  "foot.note":"Intranet PoC — detection / verification only. 1:N routes return 404."
+ },
+ "zh-CN": {
+  "brand.name":"CompreFace 控制台","brand.h1":"自托管的 1:1 人脸核验平台。",
+  "brand.sub":"YuNet 检测 · SFace 128 维特征 · 内存内 1:1 比对。",
+  "brand.p1":"仅提供 1:1 比对——1:N 检索已在网关层封禁",
+  "brand.p2":"平台不建任何当事人人脸底库",
+  "brand.p3":"特征向量仅在内存计算，绝不落库",
+  "login.title":"登录控制台","login.sub":"管理应用与服务密钥，运行比对测试。",
+  "login.email":"邮箱","login.password":"密码","login.submit":"登录",
+  "login.forgot":"忘记密码？","login.noAcct":"还没有账号？","login.signup":"注册",
+  "login.errEmail":"请输入有效的邮箱地址","login.errPwd":"请输入密码（至少 8 位）",
+  "login.loading":"登录中",
+  "nav.workspace":"工作区","nav.apps":"应用列表","nav.test":"服务测试",
+  "role.owner":"所有者","gate.title":"PoC 环境","gate.desc":"未接入业务链路，G1 / G2 标定待完成。",
+  "dash.title":"应用列表","dash.desc":"每个应用聚合其使用的人脸服务与密钥。",
+  "dash.create":"创建应用","dash.search":"搜索应用","dash.healthy":"全部服务健康",
+  "dash.created":"应用已创建",
+  "dash.emptyT":"没有匹配的应用","dash.emptyD":"调整搜索条件，或创建一个新应用开始使用。",
+  "det.desc":"创建于 2026-11-05 · 2 个服务","det.key":"比对服务密钥","det.test":"打开测试",
+  "svc.verify":"人脸比对（1:1）","svc.detect":"人脸检测","svc.requests":"请求数（24h）",
+  "svc.latency":"p95 延迟","svc.created":"创建于","svc.test":"测试",
+  "test.title":"服务测试","test.desc":"每侧上传一张照片，每张图须恰好一张人脸。",
+  "test.tabVerify":"1:1 比对","test.tabDetect":"人脸检测",
+  "test.source":"源图（证件照）","test.target":"目标图（现场帧）",
+  "test.drop":"拖拽图片到此处，或点击选择","test.hint":"JPG / PNG · 每张图一张人脸",
+  "test.run":"开始比对","test.running":"比对中",
+  "test.result":"比对结果","test.emptyT":"暂无比对结果","test.emptyD":"选择源图与目标图后点击“开始比对”。",
+  "test.similarity":"相似度","test.same":"同一人","test.diff":"不同人",
+  "test.cap":"阈值标定（G2）尚未完成，当前数值仅用于链路验证。",
+  "test.latency":"耗时","test.resp":"响应 JSON",
+  "toast.copied":"密钥已复制到剪贴板",
+  "foot.note":"内网 PoC —— 仅开放检测 / 比对，1:N 路径一律 404。"
+ }
+};
+let L = "zh-CN";
+
+/* data for views */
+const APPS = [
+ {id:"mediation-face-verify", badges:["verify","detect"], req:"1,284", created:"2026-11-05"},
+ {id:"gate-ops-frs", badges:["verify"], req:"312", created:"2026-10-28"},
+ {id:"reception-kiosk", badges:["verify","detect"], req:"47", created:"2026-10-21"},
+ {id:"audit-sandbox", badges:["detect"], req:"9", created:"2026-10-14"}
+];
+const SVCS = [
+ {type:"verify", name:"face-verify-1to1", key:"00c8c39d-51bc-4d55-9fb7-473846acd43c", req:"1,196", p95:"2.5s", created:"2026-11-05"},
+ {type:"detect", name:"face-detect", key:"9312716f-91c5-421b-93ca-bae2b218377c", req:"88", p95:"0.3s", created:"2026-11-05"}
+];
+
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+
+function renderLang(){
+  ["lang1","lang2"].forEach(id=>{
+    const el = document.getElementById(id); el.innerHTML="";
+    ["en","zh-CN"].forEach(code=>{
+      const b=document.createElement("button");
+      b.textContent = code==="en"?"EN":"中文";
+      if(code===L) b.classList.add("on");
+      b.onclick=()=>setLang(code);
+      el.appendChild(b);
+    });
+  });
+}
+function setLang(code){
+  L=code; document.documentElement.lang=code; document.documentElement.setAttribute("data-lang",code);
+  $$("[data-i18n]").forEach(el=>{const k=el.getAttribute("data-i18n"); if(I18N[L][k]) el.textContent=I18N[L][k];});
+  $$("[data-i18n-ph]").forEach(el=>{const k=el.getAttribute("data-i18n-ph"); if(I18N[L][k]) el.placeholder=I18N[L][k];});
+  renderLang(); renderApps(); renderSvcs();
+}
+
+/* ---------- dashboard ---------- */
+function badge(t){
+  const cls = t==="verify"?"verify":"detect";
+  const label = t==="verify"?I18N[L]["svc.verify"]:I18N[L]["svc.detect"];
+  return `<span class="badge ${cls}"><span class="dot"></span>${label}</span>`;
+}
+function renderApps(){
+  const q = ($("#q").value||"").toLowerCase();
+  const grid = $("#apps-grid"); grid.innerHTML="";
+  const list = APPS.filter(a=>a.id.toLowerCase().includes(q));
+  list.forEach((a,i)=>{
+    const d=document.createElement("div");
+    d.className="app-card reveal"; d.style.setProperty("--i",i);
+    d.onclick=()=>go("detail");
+    d.innerHTML=`<div class="nm mono">${a.id}</div>
+      <div class="meta">${I18N[L]["svc.created"]} ${a.created}</div>
+      <div class="row">${a.badges.map(badge).join("")}</div>
+      <div class="stat"><span class="k">${I18N[L]["svc.requests"]}</span><span class="v">${a.req}</span></div>`;
+    grid.appendChild(d);
+  });
+  if(!list.length){
+    const e=document.createElement("div");
+    e.className="empty on";
+    e.innerHTML=`<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#C4CBD3" stroke-width="1.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M8.5 11h5"/></svg>
+      <div class="t">${I18N[L]["dash.emptyT"]}</div><div class="d">${I18N[L]["dash.emptyD"]}</div>`;
+    grid.appendChild(e);
+  }
+}
+$("#q").addEventListener("input", renderApps);
+
+/* ---------- detail ---------- */
+let masked=true;
+function renderSvcs(){
+  const list=$("#svc-list"); list.innerHTML="";
+  SVCS.forEach((s,i)=>{
+    const el=document.createElement("div");
+    el.className="svc reveal"; el.style.setProperty("--i",i);
+    el.innerHTML=`
+      <div>
+        <div class="head">${badge(s.type)}<span class="nm mono">${s.name}</span><span class="pulse" title="healthy"></span></div>
+        <div class="stats">
+          <div><div class="k">${I18N[L]["svc.requests"]}</div><div class="v">${s.req}</div></div>
+          <div><div class="k">${I18N[L]["svc.latency"]}</div><div class="v">${s.p95}</div></div>
+          <div><div class="k">${I18N[L]["svc.created"]}</div><div class="v" style="font-size:13px">${s.created}</div></div>
+        </div>
+      </div>
+      <button class="btn btn-ghost" onclick="event.stopPropagation();go('test')">${I18N[L]["svc.test"]}</button>`;
+    list.appendChild(el);
+  });
+}
+/* mask / copy key */
+const KEY="00c8c39d-51bc-4d55-9fb7-473846acd43c";
+function paintKey(){ $("#keyval").textContent = masked ? KEY.slice(0,4)+"…"+KEY.slice(-4) : KEY; }
+$("#btn-mask").onclick=()=>{masked=!masked;paintKey();};
+$("#btn-copy").onclick=async()=>{
+  try{ await navigator.clipboard.writeText(KEY); }catch(e){}
+  const b=$("#btn-copy"); b.classList.add("done");
+  b.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  toast(I18N[L]["toast.copied"]);
+  setTimeout(()=>{b.classList.remove("done");
+    b.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';},1600);
+};
+
+/* ---------- test view ---------- */
+let picked=0;
+function pick(drop){
+  drop.querySelector(".t").textContent="face_sample_0"+(++picked)+".jpg";
+  drop.classList.add("over");
+  if(!drop.querySelector(".thumb")){
+    const t=document.createElement("div"); t.className="thumb on";
+    t.innerHTML='<div class="im"></div><div><div class="fn">IMG_20261105_'+(420+picked)+'.jpg</div><div class="fs">302 KB · 1840×2448</div></div>';
+    drop.appendChild(t);
+  }
+  if($("#drop1 .thumb") && $("#drop2 .thumb")) $("#btn-run").disabled=false;
+}
+function tab(btn){
+  $$(".tabs button").forEach(b=>b.classList.remove("on")); btn.classList.add("on");
+}
+function runCompare(){
+  const btn=$("#btn-run"); btn.disabled=true;
+  btn.innerHTML='<span class="spin"></span><span>'+I18N[L]["test.running"]+'</span>';
+  $("#res-empty").style.display="none"; $("#res-box").classList.remove("on");
+  $("#res-skel").classList.add("on");
+  setTimeout(()=>{
+    $("#res-skel").classList.remove("on"); $("#res-box").classList.add("on");
+    btn.disabled=false; btn.innerHTML='<span data-i18n="test.run">'+I18N[L]["test.run"]+'</span>';
+    /* animate gauge to 0.919 */
+    const target=0.919, C=402.1, bar=$("#gbar"), num=$("#gnum");
+    bar.style.strokeDashoffset=C;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ bar.style.strokeDashoffset=C*(1-target); }));
+    const t0=performance.now(), D=1400;
+    (function tick(t){ const p=Math.min(1,(t-t0)/D), e=1-Math.pow(1-p,3);
+      num.textContent=(target*e).toFixed(2); if(p<1) requestAnimationFrame(tick); })(t0);
+    const v=$("#verdict");
+    v.className="verdict same"; v.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span data-i18n="test.same">'+I18N[L]["test.same"]+'</span>';
+  },1500);
+}
+
+/* ---------- router ---------- */
+const CRUMB={dashboard:["nav.apps"],detail:["nav.apps","app"],test:["nav.apps","nav.test"]};
+function go(view){
+  ["dashboard","detail","test"].forEach(v=>{
+    $("#page-"+v).style.display = v===view?"block":"none";
+  });
+  $$(".navitem").forEach(n=>n.classList.toggle("on", n.dataset.view===view ||
+      (view==="detail"&&n.dataset.view==="dashboard")));
+  const c=$("#crumbs");
+  if(view==="detail"){ c.innerHTML='<span data-i18n="nav.apps">'+I18N[L]["nav.apps"]+'</span> / <b>mediation-face-verify</b>'; }
+  else { c.innerHTML='<span data-i18n="'+CRUMB[view][0]+'">'+I18N[L][CRUMB[view][0]]+'</span>'; }
+  main.animate([{opacity:.4},{opacity:1}],{duration:280,easing:"ease-out"});
+}
+const main=document.querySelector("main");
+
+/* ---------- login ---------- */
+$("#login-form").addEventListener("submit",e=>{
+  e.preventDefault();
+  const email=$("#in-email").value.trim(), pwd=$("#in-pwd").value;
+  $("#f-email").classList.toggle("err", !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email));
+  $("#f-pwd").classList.toggle("err", pwd.length<8);
+  if($("#f-email").classList.contains("err")||$("#f-pwd").classList.contains("err")) return;
+  const btn=$("#btn-login"); btn.disabled=true;
+  btn.innerHTML='<span class="spin"></span><span>'+I18N[L]["login.loading"]+'</span>';
+  setTimeout(()=>{
+    $("#view-login").classList.add("hidden");
+    $("#view-app").classList.add("on");
+    go("dashboard");
+    btn.disabled=false; btn.innerHTML="<span>"+I18N[L]["login.submit"]+"</span>";
+  },900);
+});
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg){
+  const t=$("#toast"); t.textContent=msg; t.classList.add("on");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("on"),1800);
+}
+
+/* drag-over visual */
+$$(".drop").forEach(d=>{
+  d.addEventListener("dragover",e=>{e.preventDefault();d.classList.add("over")});
+  d.addEventListener("dragleave",()=>d.classList.remove("over"));
+  d.addEventListener("drop",e=>{e.preventDefault();pick(d)});
+});
+
+/* init */
+paintKey(); renderSvcs(); setLang("zh-CN");
+</script>
+</body>
+</html>

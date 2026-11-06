@@ -1,0 +1,54 @@
+[01:11:20] === GPU resource bench start (2 concurrent, 60s wav, port 8023) ===
+[01:11:26] idle baseline: hostUsed=2176MB total=12227MB | containerView used=1173MB/12199MB
+[01:11:26] warmup request (model load + CUDA init)...
+[01:11:27] warmup: 619ms http=200 emotion=anxious
+[01:11:35] loaded baseline: hostUsed=2176MB | containerView used=1173MB/12199MB
+[01:11:35] loaders started: 23476,13424
+[01:11:37] [ 0s] vram=2176MB gpuUtil=0% memUtil=0% | emotion2vec-gpu 0.38% 1.171GiB / 6GiB | compreface-api 0.25% 805MiB / 15.23GiB
+[01:11:40] [ 1s] vram=4738MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 95.62% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:11:43] [ 2s] vram=4588MB gpuUtil=82% memUtil=35% | emotion2vec-gpu 98.46% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:11:47] [ 3s] vram=4042MB gpuUtil=78% memUtil=37% | emotion2vec-gpu 100.10% 1.189GiB / 6GiB | compreface-api 0.20% 805MiB / 15.23GiB
+[01:11:50] [ 4s] vram=4054MB gpuUtil=98% memUtil=42% | emotion2vec-gpu 101.91% 1.189GiB / 6GiB | compreface-api 0.17% 805MiB / 15.23GiB
+[01:11:52] [ 5s] vram=4428MB gpuUtil=75% memUtil=32% | emotion2vec-gpu 95.84% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:11:55] [ 6s] vram=4416MB gpuUtil=83% memUtil=40% | emotion2vec-gpu 97.55% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:11:59] [ 7s] vram=4428MB gpuUtil=73% memUtil=31% | emotion2vec-gpu 100.35% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:12:01] [ 8s] vram=4428MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 97.44% 1.189GiB / 6GiB | compreface-api 0.18% 805MiB / 15.23GiB
+[01:12:04] [ 9s] vram=4604MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 98.07% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:12:07] [10s] vram=4416MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 98.60% 1.189GiB / 6GiB | compreface-api 0.19% 805MiB / 15.23GiB
+[01:12:10] [11s] vram=3214MB gpuUtil=78% memUtil=37% | emotion2vec-gpu 100.76% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:12:14] [12s] vram=4054MB gpuUtil=96% memUtil=40% | emotion2vec-gpu 94.82% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:12:17] [13s] vram=4054MB gpuUtil=100% memUtil=38% | emotion2vec-gpu 100.75% 1.189GiB / 6GiB | compreface-api 0.19% 805MiB / 15.23GiB
+[01:12:20] [14s] vram=4416MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 99.26% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:12:23] [15s] vram=4416MB gpuUtil=73% memUtil=34% | emotion2vec-gpu 95.63% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:12:26] [16s] vram=4054MB gpuUtil=98% memUtil=37% | emotion2vec-gpu 100.31% 1.189GiB / 6GiB | compreface-api 0.22% 805MiB / 15.23GiB
+[01:12:30] [17s] vram=4416MB gpuUtil=100% memUtil=38% | emotion2vec-gpu 97.26% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:12:32] [18s] vram=4416MB gpuUtil=100% memUtil=34% | emotion2vec-gpu 99.41% 1.189GiB / 6GiB | compreface-api 0.16% 805MiB / 15.23GiB
+[01:12:35] [19s] vram=4416MB gpuUtil=100% memUtil=39% | emotion2vec-gpu 101.95% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:12:37] [20s] vram=4416MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 102.68% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:12:41] [21s] vram=4054MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 99.71% 1.189GiB / 6GiB | compreface-api 0.14% 805MiB / 15.23GiB
+[01:12:44] [22s] vram=4416MB gpuUtil=100% memUtil=37% | emotion2vec-gpu 98.51% 1.189GiB / 6GiB | compreface-api 0.15% 805MiB / 15.23GiB
+[01:12:47] [23s] vram=3478MB gpuUtil=94% memUtil=39% | emotion2vec-gpu 99.62% 1.189GiB / 6GiB | compreface-api 0.18% 805MiB / 15.23GiB
+[01:12:49] [24s] vram=4428MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 100.34% 1.189GiB / 6GiB | compreface-api 0.18% 805MiB / 15.23GiB
+[01:12:53] [25s] vram=4416MB gpuUtil=81% memUtil=34% | emotion2vec-gpu 100.74% 1.189GiB / 6GiB | compreface-api 0.14% 805MiB / 15.23GiB
+[01:12:56] [26s] vram=4796MB gpuUtil=100% memUtil=40% | emotion2vec-gpu 98.52% 1.189GiB / 6GiB | compreface-api 0.25% 805MiB / 15.23GiB
+[01:12:59] [27s] vram=4416MB gpuUtil=98% memUtil=40% | emotion2vec-gpu 94.93% 1.189GiB / 6GiB | compreface-api 0.21% 805MiB / 15.23GiB
+[01:13:02] [28s] vram=4054MB gpuUtil=96% memUtil=41% | emotion2vec-gpu 96.05% 1.189GiB / 6GiB | compreface-api 0.19% 805MiB / 15.23GiB
+[01:13:05] [29s] vram=4416MB gpuUtil=81% memUtil=35% | emotion2vec-gpu 96.70% 1.189GiB / 6GiB | compreface-api 0.19% 805MiB / 15.23GiB
+[01:13:15] cooled: hostUsed=2186MB | containerView used=1173MB
+[01:13:15] 
+[01:13:15] ================ SUMMARY ================
+[01:13:15] samples                 = 30
+[01:13:15] VRAM total              = 12227 MB
+[01:13:15] VRAM idle baseline      = 2176 MB (含宿主 LM Studio/explorer 等)
+[01:13:15] VRAM loaded baseline    = 2176 MB (模型已加载)
+[01:13:15] VRAM peak (2 并发)      = 4796 MB
+[01:13:15] SER VRAM increment      = 2620 MB (peak - loaded)
+[01:13:15] VRAM headroom at peak   = 7431 MB (60.8% of total)
+[01:13:15] container view used     = 1173 MB idle / 1173 MB loaded / 1173 MB cooled
+[01:13:15] GPU util peak           = 100 %
+[01:13:15] mem util peak           = 42 %
+[01:13:15] SER CPU peak            = 102.7 % (mem 1.189GiB)
+[01:13:15] CompreFace CPU peak     = 0.2 % (同机 CPU 服务参照)
+[01:13:15] requests                = 225 total / 225 http200 / 0 non-200-or-error
+[01:13:15] =========================================
+[01:13:15] === GPU resource bench done ===

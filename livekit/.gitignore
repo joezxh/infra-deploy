@@ -1,0 +1,7 @@
+# 部署时生成，含明文密钥
+.env
+livekit.yaml
+
+# 备份与运行时产物
+*.bak
+data/

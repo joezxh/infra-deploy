@@ -1,0 +1,54 @@
+# emotion2vec_plus_large SER 推理镜像 —— GPU 分支 A（支持 Blackwell sm_120）
+# 与 Dockerfile(CPU) 同构，仅 torch/torchaudio 换为 cuda wheel。
+# 关键（实测修正）：torch 2.6.0+cu124 仅含 sm_50..sm_90 kernel，在 RTX 5070 Ti(sm_120) 上
+#   报 "CUDA error: no kernel image is available for execution on the device"，所有推理 500；
+#   必须 torch>=2.7 + cu128（CUDA 12.8 才引入 sm_120）。本机驱动 617.42 满足。
+# funasr 依赖会拉 torch，故最后再锁一次 cuda torch 防止被覆盖为 CPU 版。
+# 不挂载任何音频卷（spec §9 落盘禁令）；模型权重 ./models 只读挂入 /models。
+
+FROM docker.m.daocloud.io/library/python:3.10-slim
+
+ARG SER_MODEL_ID=iic/emotion2vec_plus_large
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn \
+    USE_TF=0 USE_FLAX=0 HF_HUB_OFFLINE=1 \
+    SER_MODEL_ID=${SER_MODEL_ID} \
+    PYTHONUNBUFFERED=1
+
+RUN sed -i 's#deb.debian.org#mirrors.tuna.tsinghua.edu.cn#g' \
+        /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg libsox-dev libgl1 libglib2.0-0 \
+        curl ca-certificates fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
+# cuda torch wheel（阿里云 pytorch-wheels/cu128 flat 镜像，实测 2.3-2.7MB/s）
+# 阿里云是 flat 目录而非 PEP503 索引，须用 --find-links；tuna 主 index 提供 triton 等其余依赖。
+# 版本锁 +cu128 后缀，避免 tuna 上的 CPU 版 torch 被选中。
+RUN pip install --no-cache-dir \
+        torch==2.7.1+cu128 torchaudio==2.7.1+cu128 \
+        --find-links https://mirrors.aliyun.com/pytorch-wheels/cu128 \
+        --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 服务栈与推理库
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# 再次锁定 cuda torch（防止 funasr 依赖拉入 CPU torch 覆盖）
+RUN pip install --no-cache-dir \
+        torch==2.7.1+cu128 torchaudio==2.7.1+cu128 \
+        --find-links https://mirrors.aliyun.com/pytorch-wheels/cu128 \
+        --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app
+COPY app.py /app/app.py
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -f http://127.0.0.1:8000/health || exit 1
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,32 +1,65 @@
-# SP-4 SER 部署骨架（本轮未实测，U1-U5 门禁未回写前 MEETING_SER_ENABLED 恒 false）
-# 端口：对外 8020（nginx + X-API-Key），内部 8021（模型 core /health，不对外）
+# emotion2vec_plus_large SER 一体化部署：推理容器（CPU 或 GPU）＋ Nginx 反代鉴权
+# 对齐 spec 2026-11-04-acoustic-ser-design.md §8.2.1 / §4.2
+#
+# 端口约定（与 paddle 同一取向：推理容器只监听 127.0.0.1，避免绕过 Nginx）：
+#   emotion2vec  127.0.0.1:${SER_PORT:-8021}      -> 容器 8000
+#   ser-nginx    0.0.0.0:${SER_NGINX_PORT:-8020}  -> 容器 80   （唯一对外入口）
+#
+# 对外路径（均需 X-API-Key）：/ser/v1/audio/emotion , /ser/health
+#   调用方把 base-url 配到 http://<host>:8020/ser，nginx 剥掉 /ser 前缀后转容器同名路径
+# 免鉴权探针：/ser-nginx-health
+#
+# 门禁纪律：U1–U5 未实测回写 README 前，MEETING_SER_ENABLED 与
+# MEETING_SER_POC_PASSED 恒 false，本编排即使启动成功也不得接入业务链路。
+
 services:
-  ser-core:
-    image: ${SER_CORE_IMAGE:-emotion2vec-ser:local}
-    container_name: mediation-ser-core
-    environment:
-      ML_PORT: 8021
-      SER_LABELS: calm,anxious,agitated,anger,threat
-    expose:
-      - "8021"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8021/healthcheck"]
-      interval: 15s
-      timeout: 3s
-      retries: 5
+  emotion2vec:
+    build:
+      context: ./emotion2vec
+      dockerfile: Dockerfile
+      args:
+        SER_MODEL_ID: ${SER_MODEL_ID:-iic/emotion2vec_plus_large}
+    image: ${SER_IMAGE:-emotion2vec:1.0}
+    container_name: emotion2vec
     restart: unless-stopped
-    # 不挂音频卷：音频与中间向量一律不落盘
+    ports:
+      - "127.0.0.1:${SER_PORT:-8021}:8000"
+    environment:
+      SER_MODEL_ID: ${SER_MODEL_ID:-iic/emotion2vec_plus_large}
+      SER_DEVICE: ${SER_DEVICE:-cpu}          # cpu = 分支 B（默认）；cuda:0 = 分支 A
+      SER_MAX_INFLIGHT: ${SER_MAX_INFLIGHT:-2}
+      SER_TORCH_THREADS: ${SER_TORCH_THREADS:-8}
+    # 严禁挂载任何音频卷（spec §9 落盘禁令在部署层的体现）；音频不得落盘/挂卷。
+    # 模型权重卷为只读、非音频，允许挂载：避免 1.8GB 权重烘焙进镜像（影响 §8.4 U4）。
+    volumes:
+      - ./models:/models:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s    # 300M 模型加载比 OCR 慢，给足窗口免误判 unhealthy
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${SER_MEM_LIMIT:-6g}
 
   ser-nginx:
-    image: nginx:1.27-alpine
-    container_name: mediation-ser-nginx
+    image: ${NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
+    container_name: ser-nginx
+    restart: unless-stopped
     depends_on:
-      ser-core:
-        condition: service_healthy
+      - emotion2vec
     ports:
-      - "${SER_PUBLIC_PORT:-8020}:80"
+      - "${SER_NGINX_PORT:-8020}:80"
+    environment:
+      API_KEY: ${API_KEY:?请先在 .env 中设置 API_KEY}
+      SER_UPSTREAM: http://emotion2vec:8000
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
-    environment:
-      SER_API_KEY: ${SER_API_KEY:?SER_API_KEY 必填，无明文默认值}
-    restart: unless-stopped
+    healthcheck:
+      # alpine 下 localhost 优先解析 ::1，必须写 127.0.0.1
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ser-nginx-health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

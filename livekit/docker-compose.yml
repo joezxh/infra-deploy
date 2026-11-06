@@ -1,0 +1,87 @@
+# =============================================================
+# 矛盾纠纷调解平台 - LiveKit 视频会议 SFU（单节点）
+#
+# 参考本机已部署实例 mwb-livekit：
+#   livekit-server v1.13.11 / 7880 信令 / 7881 单 UDP 媒体端口 / 7882 ICE-TCP
+#   / --config 挂载配置 / Redis 作节点状态与消息总线。
+#
+# 与本地实例的差异（三处刻意改进）：
+#   1. 默认自带 redis（同一 compose 网络，服务名 redis:6379）；
+#      也可 REDIS_MODE=external 复用已有 Redis；
+#   2. 显式传 --node-ip，避免 bridge 网络下通告 172.x 容器 IP，
+#      造成跨机客户端「连上信令但黑屏无声」；
+#   3. 密钥由 .env 经部署脚本渲染进 livekit.yaml，不硬编码在配置文件里。
+#
+# ⚠️ 必须用 deploy.ps1 / deploy.sh 启动：脚本负责生成 .env、渲染
+#    livekit.yaml、检查端口冲突。直接 docker compose up -d 会挂载到
+#    不存在的 livekit.yaml（Docker 会建成目录）而启动失败。
+# =============================================================
+name: mediation-livekit
+
+services:
+  # ---------------- 1. LiveKit Server ----------------
+  livekit-server:
+    # 默认 = 本机已中转的 ACR 镜像；禁止 latest。
+    # 也可在 .env 改 LIVEKIT_IMAGE=docker.m.daocloud.io/livekit/livekit-server:v1.13.11
+    image: ${LIVEKIT_IMAGE:-crpi-c762f77rjuytqer9.cn-hangzhou.personal.cr.aliyuncs.com/llm-basic/base/livekit-server:v1.13.11}
+    container_name: ${LIVEKIT_CONTAINER_NAME:-mediation-livekit}
+    # 官方镜像 ENTRYPOINT = /livekit-server，这里只追加参数。
+    # v1.13.x 的 rtc 段没有 hostname 字段（写了会 yaml unmarshal 报错重启循环），
+    # 通告给客户端的媒体 IP 只能走 CLI --node-ip。
+    command: ["--config", "/etc/lk/config.yaml", "--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
+    volumes:
+      # 生成物：由 deploy 脚本按 .env 渲染 livekit.yaml.template
+      - ./livekit.yaml:/etc/lk/config.yaml:ro
+    ports:
+      - "7880:7880"        # HTTP API（房间管理/webhook）+ WebSocket 信令；GET / 返回 200 可探活
+      - "7881:7881/udp"    # 单一媒体 UDP 端口（多路复用），避开 50000-60000 大段映射
+      - "7882:7882/tcp"    # ICE-TCP 兜底
+    extra_hosts:
+      # Linux 上让 host.docker.internal 可解析（external Redis 模式需要）；
+      # Docker Desktop 原生支持，写了也无害。
+      - "host.docker.internal:host-gateway"
+    networks:
+      - livekit-net
+    restart: unless-stopped
+    # 无标准 healthcheck 端点（无 /health）；存活判定用 GET / 或
+    # docker exec <ctr> /livekit-server ports --config /etc/lk/config.yaml
+
+  # ---------------- 2. Redis（节点注册 + Egress/Ingress 消息总线）----------------
+  # 单节点也建议开启：便于状态观测，未来加第二台 server 指向同一 Redis 即自动组网。
+  # REDIS_MODE=external 时部署脚本不会启动本服务。
+  redis:
+    image: ${REDIS_IMAGE:-docker.m.daocloud.io/library/redis:7.4-alpine}
+    container_name: ${REDIS_CONTAINER_NAME:-mediation-livekit-redis}
+    environment:
+      REDIS_PASSWORD: ${LIVEKIT_REDIS_PASSWORD:-mediation_livekit_redis}
+    command:
+      - redis-server
+      - --requirepass
+      - ${LIVEKIT_REDIS_PASSWORD:-mediation_livekit_redis}
+      - --appendonly
+      - "yes"
+    volumes:
+      - redis_data:/data
+    networks:
+      - livekit-net
+    restart: unless-stopped
+    healthcheck:
+      # $$ 转义为容器内 shell 变量，密码不出现在 docker inspect 里
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    # 默认不映射宿主端口：livekit-worker 加入 livekit-net 即可。
+    # 如需外部观测，手动加：ports: - "127.0.0.1:6380:6379"
+
+networks:
+  livekit-net:
+    # 固定网络名，便于 livekit-worker 以 external 网络加入：
+    #   networks:
+    #     mediation-livekit-net:
+    #       external: true
+    name: mediation-livekit-net
+
+volumes:
+  redis_data:

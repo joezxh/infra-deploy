@@ -6,6 +6,8 @@
 # 路径映射：外部 /face/api/v1/... -> 剥掉 /face 前缀 -> CompreFace 原生 /api/v1/...
 # 双层 key：业务调用方持 X-API-Key（外层校验），CompreFace 自身 x-api-key 由本反代注入，
 #          业务侧不接触服务 key，便于单独轮换与回收。
+# 注意：CompreFace 的 key 与服务类型绑定（DETECTION/VERIFY 各一个），
+#      detection 与 verification 两个 location 必须注入不同的服务 key。
 #
 # !! 本文件对 CompreFace 原生路由的假设待 scripts/verify.ps1 实测确认 !!
 
@@ -33,7 +35,7 @@ server {
             return 401 '{"error":"unauthorized","message":"missing or invalid X-API-Key"}';
         }
         proxy_pass ${COMPREFACE_UPSTREAM}/api/v1/detection/;
-        proxy_set_header x-api-key "${COMPREFACE_API_KEY}";
+        proxy_set_header x-api-key "${COMPREFACE_DET_KEY}";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

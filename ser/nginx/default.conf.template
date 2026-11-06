@@ -1,22 +1,35 @@
-# 仅暴露 /v1/ser；X-API-Key 由 envsubst 注入，未带 key 直接 401
-upstream ser_core { server ser-core:8021; }
+# SER Nginx 反代 + API Key 鉴权（对齐 spec §8.2.6 / §4.2）
+# 官方镜像启动时对本文件 envsubst，仅 ${VAR} 形式被替换，$host 等 nginx 变量原样保留。
 
 server {
     listen 80;
-    client_max_body_size 8m;
+    server_name _;
+    default_type application/json;
 
-    location = /health {
+    client_max_body_size 8m;          # 音频段比图片小，上限故意收紧
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+    proxy_buffering off;
+
+    location = /ser-nginx-health {
         access_log off;
-        return 200 '{"status":"UP"}';
-        add_header Content-Type application/json;
+        return 200 '{"status":"ok","service":"ser-nginx"}';
     }
 
-    location = /v1/ser {
-        if ($http_x_api_key != "${SER_API_KEY}") { return 401; }
-        proxy_pass http://ser_core;
-        proxy_read_timeout 3s;
-        proxy_connect_timeout 2s;
+    # 外部 /ser/v1/audio/emotion -> 容器 /v1/audio/emotion；/ser/health -> /health
+    # （前缀剥掉后路径不变，因此容器内路由与 §4.2 契约逐字相同）
+    location /ser/ {
+        if ($http_x_api_key != "${API_KEY}") {
+            return 401 '{"error":"unauthorized","message":"missing or invalid X-API-Key"}';
+        }
+        proxy_pass ${SER_UPSTREAM}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
-    location / { return 404; }
+    location / {
+        return 404 '{"error":"not found","routes":["/ser/v1/audio/emotion","/ser/health"]}';
+    }
 }

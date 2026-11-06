@@ -1,0 +1,46 @@
+# =============================================================
+# LiveKit Server 配置模板 —— 由 deploy.ps1 / deploy.sh 渲染为 livekit.yaml
+#
+# ⚠️ LiveKit 不展开 YAML 里的 ${VAR}，keys 是 map 也无法靠 LIVEKIT_*
+#    环境变量覆盖，所以用 @ 包裹的变量名占位符必须在启动前由脚本替换成 .env 真实值。
+#    直接编辑生成物 livekit.yaml 会在下次 deploy 时被覆盖，请改 .env。
+#
+# 字段以 v1.13.11 为准：已删除 rtc.use_websocket / rtc.hostname / auth /
+# static_auth_secret / enable_egress；写了未知字段会 yaml unmarshal 失败、
+# 容器反复重启。token TTL 由签发方（ai-server）决定。
+# =============================================================
+
+# HTTP API + WebSocket 信令入口
+port: 7880
+
+# 绑定所有网卡；只有 --dev 模式才会锁回环
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  # 单一 UDP 媒体端口（多路复用）；Windows Docker Desktop 映射万级 UDP 端口会卡死
+  udp_port: 7881
+  # ICE-TCP 兜底端口
+  tcp_port: 7882
+  # 不要在 rtc 段写 hostname / use_external_ip 之外的新字段：
+  # 跨机通告 IP 走 compose command 的 --node-ip（见 docker-compose.yml）。
+  # 内置 TURN 在 v1.13.x 需 TLS 证书 + domain，生产跨严格 NAT 时另按官方
+  # config-sample.yaml 的 turn 段配置，本机冒烟无需。
+
+# 签发/校验 access token 的密钥对（keyID: secret）
+# 必须与 ai-server 的 LIVEKIT_API_KEY / LIVEKIT_API_SECRET 完全一致
+keys:
+  "@LIVEKIT_API_KEY@": "@LIVEKIT_API_SECRET@"
+
+room:
+  empty_timeout: 300            # 房间无人 5 分钟后自动回收
+  max_participants: 50          # 按调解庭业务上限收紧
+
+# 节点状态 / 消息总线（egress、ingress 派单，多节点自动组网）
+# internal 模式由脚本强制填 redis:6379；external 模式取 .env 的地址
+redis:
+  address: "@LIVEKIT_REDIS_ADDRESS@"
+  password: "@LIVEKIT_REDIS_PASSWORD@"
+
+logging:
+  level: info

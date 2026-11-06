@@ -1,0 +1,9 @@
+# SER 服务依赖（版本写死保证可复现；torch/torchaudio 由 Dockerfile 处理，此处不重复声明）
+# funasr / modelscope 为设计假定值：PoC 阶段须以 pip index versions 实际取值回写 README 版本清单
+funasr==1.2.7
+modelscope==1.23.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+numpy==1.26.4
+soundfile==0.13.1

@@ -1,0 +1,10 @@
+# 模型权重约 1.8GB，运行时只读挂载到容器 /models，不入库
+models/
+
+# 离线 wheel 为部署机本地缓存（Dockerfile 有在线回退），含下载日志，不入库
+emotion2vec/wheels/
+
+# 部署与验证脚本产生的日志（非部署产物）
+*.log
+*.err
+scripts/.tmp/

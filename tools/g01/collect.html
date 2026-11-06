@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>SP-3 真机取证采集器（G1 会中帧 / G2 标定样本）</title>
+<style>
+:root{--line:#e3e8ef;--text:#1c2430;--sub:#6b7686;--accent:#0f7b6c}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;color:var(--text);background:#f6f8fa}
+.wrap{max-width:960px;margin:0 auto;padding:24px 20px 60px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--sub);margin:0 0 20px;font-size:13px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+label{font-size:13px;color:var(--sub)}
+input[type=text]{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;width:220px}
+button{padding:8px 14px;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+button.ghost{background:#fff;color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.mode{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.mode button{border:0;border-radius:0;background:#fff;color:var(--sub)}
+.mode button.on{background:var(--accent);color:#fff}
+video{width:320px;border-radius:10px;background:#000;aspect-ratio:4/3;object-fit:cover}
+.stat{font-family:Consolas,Consolas,monospace;font-size:12.5px;color:var(--sub)}
+.stat b{color:var(--text)}
+.warn{background:#fff8e6;border:1px solid #f0dca8;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#7a5a12}
+code{background:#f2f4f7;padding:1px 5px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>SP-3 真机取证采集器</h1>
+<p class="sub">G1 真实会中帧 / G2 标定样本 · <b>全部本地落盘，不上传任何数据</b>（帧仅落本地取证目录，人工评审后删除）</p>
+<div class="card">
+<div class="row">
+<div class="mode"><button id="mFrame" class="on">G1 会中帧采集</button><button id="mSample">G2 标定样本采集</button></div>
+<label>被采集者身份</label><input type="text" id="identity" placeholder="如 participant-a" />
+<label>输出根目录</label><button id="btnDir" class="ghost">选择目录…</button><span class="stat" id="dirStat">未选择</span>
+</div>
+<div class="warn" id="tip"></div>
+</div><div class="card">
+<div class="row">
+<video id="cam" autoplay playsinline muted></video>
+<div>
+<div class="row">
+<button id="btnCam">开启摄像头</button>
+<button id="btnShot" disabled>手动拍一张</button>
+<button id="btnAuto" class="ghost" disabled>开始每 3 秒连拍</button>
+<button id="btnStop" class="ghost" disabled>停止连拍</button>
+</div>
+<div class="stat" id="stat">未开始</div>
+<div class="stat" id="last" style="margin-top:6px"></div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="stat">
+落盘结构：<br />
+G1 帧：<code>&lt;根&gt;/g1-frames/&lt;identity&gt;/f_0001.jpg</code> + <code>&lt;根&gt;/g1-frames/labels.csv</code>（identity,文件,时刻,场景备注）<br />
+G2 样本：<code>&lt;根&gt;/calibration/positive|negative/&lt;person_id&gt;/s_0001.jpg</code>
+</div>
+</div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+let mode='frame', dirHandle=null, stream=null, timer=null, count=0, note='', expect='1';
+function setTip(){
+  $('#tip').textContent = mode==='frame'
+    ? 'G1 模式：每 3 秒抓一帧（长边 640、JPEG 0.72，与生产 grabFrame 口径一致）。覆盖：单人正面/侧脸、无人、两人同框、逆光、弱光、戴口罩，累计 ≥20 段真实会中帧。'
+    : 'G2 模式：按「手动拍一张」连拍。同一身份请更换光照、朝向、表情、距离各拍 ≥10 张；不同人的样本另放 negative/<person_id>/。';
+}
+setTip();
+$('#mFrame').onclick=()=>{mode='frame';$('#mFrame').classList.add('on');$('#mSample').classList.remove('on');setTip();};
+$('#mSample').onclick=()=>{mode='sample';$('#mSample').classList.add('on');$('#mFrame').classList.remove('on');setTip();};
+$('#btnDir').onclick=async()=>{
+  if(!window.showDirectoryPicker){alert('当前浏览器不支持目录选择，请用 Chrome/Edge 并通过 http://localhost 或 https 打开本页');return;}
+  dirHandle=await window.showDirectoryPicker({mode:'readwrite'});
+  $('#dirStat').textContent=dirHandle.name;
+};
+$('#btnCam').onclick=async()=>{
+  if(!navigator.mediaDevices?.getUserMedia){alert('浏览器不支持摄像头采集（需 https 或 localhost）');return;}
+  stream=await navigator.mediaDevices.getUserMedia({video:{width:1280,height:960},audio:false});
+  $('#cam').srcObject=stream;
+  $('#btnShot').disabled=false;$('#btnAuto').disabled=false;
+  $('#stat').textContent='摄像头已开启';
+};
+function pad(n){return String(n).padStart(4,'0');}
+async function grab(){
+  const v=$('#cam');const w=v.videoWidth||640,h=v.videoHeight||480;
+  const s=Math.min(1,640/Math.max(w,h));
+  const cv=document.createElement('canvas');
+  cv.width=Math.round(w*s);cv.height=Math.round(h*s);
+  cv.getContext('2d').drawImage(v,0,0,cv.width,cv.height);
+  const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.72));
+  return blob;
+}async function save(){
+  if(!dirHandle){alert('请先选择输出目录');return;}
+  const id=($('#identity').value||'').trim();
+  if(!id){alert('请填写被采集者身份');return;}
+  const blob=await grab();
+  if(!blob)return;
+  count+=1;
+  const ts=new Date().toISOString();
+  if(mode==='frame'){
+    const root=await dirHandle.getDirectoryHandle('g1-frames',{create:true});
+    const sub=await root.getDirectoryHandle(id,{create:true});
+    const fh=await sub.getFileHandle('f_'+pad(count)+'.jpg',{create:true});
+    const ws=await fh.createWritable();await ws.write(blob);await ws.close();
+    const lf=await root.getFileHandle('labels.csv',{create:true});
+    const text=await (await lf.getFile()).text();
+    const ws2=await lf.createWritable();
+    await ws2.write(text+id+',f_'+pad(count)+'.jpg,'+ts+','+expect+','+note+'\n');
+    await ws2.close();
+    $('#last').textContent='已保存 g1-frames/'+id+'/f_'+pad(count)+'.jpg ('+ts+')';
+  }else{
+    const root=await dirHandle.getDirectoryHandle('calibration',{create:true});
+    const grp=await root.getDirectoryHandle('positive',{create:true});
+    const sub=await grp.getDirectoryHandle(id,{create:true});
+    const fh=await sub.getFileHandle('s_'+pad(count)+'.jpg',{create:true});
+    const ws=await fh.createWritable();await ws.write(blob);await ws.close();
+    $('#last').textContent='已保存 calibration/positive/'+id+'/s_'+pad(count)+'.jpg';
+  }
+  $('#stat').textContent='已采集 '+count+' 张';
+}
+$('#btnShot').onclick=()=>save();
+$('#btnAuto').onclick=async()=>{
+  if(timer)return;
+  const ans=window.prompt('输入：<期望> <备注>\n期望 1=应检出人脸  0=应无人脸（误报检验）  2=两人同框\n例：1 单人正面 / 0 无人 / 2 两人同框',note||'1 单人正面')||'';
+  const head=ans.trim().charAt(0);
+  if(head==='0'||head==='1'||head==='2'){expect=head;note=ans.trim().slice(1).trim();}else{note=ans.trim();}
+  $('#btnAuto').disabled=true;$('#btnStop').disabled=false;
+  timer=setInterval(()=>{if(!document.hidden)save();},3000);
+};
+$('#btnStop').onclick=()=>{if(timer){clearInterval(timer);timer=null;}$('#btnAuto').disabled=false;$('#btnStop').disabled=true;};
+</script>
+</body>
+</html>
