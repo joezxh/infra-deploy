@@ -9,3 +9,10 @@ secrets/
 tools/e2e/node_modules/
 tools/e2e/shots/
 tools/e2e/package-lock.json
+
+# 离线安装用的大二进制包（whl 等）：超过 Git 单文件 100MB 限制，禁止入库
+# 部署前在目标机执行：pip download paddlepaddle==3.3.0 -d paddle/pp-ocrv6/wheels --no-deps
+# 目录本身要保留（Dockerfile 有 COPY wheels /wheels），缺 whl 时镜像构建自动回退在线安装
+*.whl
+paddle/pp-ocrv6/wheels/*
+!paddle/pp-ocrv6/wheels/.gitkeep
