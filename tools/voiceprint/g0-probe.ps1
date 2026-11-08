@@ -111,6 +111,22 @@ try {
   $result.Capability = if ($cap.Status -eq 200) { '通过' } else { '未通过' }
   Add-Line "## capability 探活：$($result.Capability)"
   Add-Line "- GET /v1/audio/embeddings/capability → HTTP $($cap.Status)"
+  $capDim = 0
+  if ($cap.Status -eq 200) {
+    try {
+      $cj = $cap.Body | ConvertFrom-Json
+      $capDim = [int]($cj.dim ?? $cj.embedding_dim ?? 0)
+      if ($capDim -gt 0) { Add-Line "- capability 自报维度：$capDim（R8：以端点自报为准回填 voice.gateway.embedding-dim）" }
+    } catch { Add-Line '- capability 响应解析失败（不阻塞其它取证项）' }
+  }
+
+  # ---------- 维度漂移（三源一致才判无漂移）----------
+  $driftOk = ($dim -eq $ExpectedDim) -and ($capDim -eq 0 -or $capDim -eq $ExpectedDim)
+  Add-Line "## 维度漂移：$(if ($driftOk) { '无漂移' } else { '**检出漂移**' })"
+  Add-Line "- embedding 实测 dim=$dim / capability 自报 dim=$capDim / 配置期望 ExpectedDim=$ExpectedDim"
+  if (-not $driftOk) {
+    Add-Line '- **处置**：按 R8 以实测回填 `voice.gateway.embedding-dim` 并复跑本脚本；配置未改齐前平台侧必然 DIM_MISMATCH，属预期 fail-closed。'
+  }
 
   # ---------- G0-d 鉴权 ----------
   if ($a.Status -eq 200) {
@@ -122,30 +138,38 @@ try {
     Add-Line '## G0-d 鉴权：不适用（端点不存在，无法验证其鉴权行为）'
   }
 
-  # ---------- G0-c 并发容量 ----------
+  # ---------- G0-c 并发容量 + P95 ----------
   if ($a.Status -eq 200) {
     $asrBefore = Invoke-Probe "$BaseUrl/v1/audio/transcriptions" 'POST' $form $true
-    $jobs = 1..8 | ForEach-Object -Parallel {
-      $f = @{ file = Get-Item $using:tmp; model = 'qwen3-speaker-embedding'; purpose = 'verify' }
-      $sw = [Diagnostics.Stopwatch]::StartNew()
-      try {
-        $r = Invoke-WebRequest -Uri "$using:BaseUrl/v1/audio/embeddings" -Method Post `
-          -Form $f -Headers @{ Authorization = "Bearer $using:ApiKey" } `
-          -TimeoutSec 8 -SkipHttpErrorCheck
-        $sw.Stop()
-        [pscustomobject]@{ Status = [int]$r.StatusCode; Ms = $sw.ElapsedMilliseconds }
-      } catch {
-        $sw.Stop()
-        [pscustomobject]@{ Status = 0; Ms = $sw.ElapsedMilliseconds }
+    # 3 轮 × 8 路并发 = 24 个样本，足够算 P95（§10.2 端到端时延分位数口径）
+    $jobs = @(1..3 | ForEach-Object {
+      1..8 | ForEach-Object -Parallel {
+        $f = @{ file = Get-Item $using:tmp; model = 'qwen3-speaker-embedding'; purpose = 'verify' }
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        try {
+          $r = Invoke-WebRequest -Uri "$using:BaseUrl/v1/audio/embeddings" -Method Post `
+            -Form $f -Headers @{ Authorization = "Bearer $using:ApiKey" } `
+            -TimeoutSec 8 -SkipHttpErrorCheck
+          $sw.Stop()
+          [pscustomobject]@{ Status = [int]$r.StatusCode; Ms = $sw.ElapsedMilliseconds }
+        } catch {
+          $sw.Stop()
+          [pscustomobject]@{ Status = 0; Ms = $sw.ElapsedMilliseconds }
+        }
       }
-    }
+    }) | ForEach-Object { $_ }
     $asrAfter = Invoke-Probe "$BaseUrl/v1/audio/transcriptions" 'POST' $form $true
     $degrade = if ($asrBefore.Ms -gt 0) { [Math]::Round(100.0 * ($asrAfter.Ms - $asrBefore.Ms) / $asrBefore.Ms, 1) } else { 0 }
     $serverErrors = @($jobs | Where-Object { $_.Status -ge 500 }).Count
-    $result.G0c = if ($degrade -le 20 -and $serverErrors -eq 0) { '通过' } else { '未通过' }
+    $latencies = @($jobs | Sort-Object Ms | Select-Object -ExpandProperty Ms)
+    $p95Idx = [Math]::Min($latencies.Count - 1, [Math]::Ceiling($latencies.Count * 0.95) - 1)
+    $p95Ms = if ($latencies.Count -gt 0) { $latencies[[Math]::Max(0, $p95Idx)] } else { 0 }
+    $timeoutCount = @($jobs | Where-Object { $_.Status -eq 0 }).Count
+    $result.G0c = if ($degrade -le 20 -and $serverErrors -eq 0 -and $timeoutCount -eq 0) { '通过' } else { '未通过' }
     Add-Line "## G0-c 并发容量：$($result.G0c)"
-    Add-Line "- 8 路并发 embedding：5xx=$serverErrors，ASR 基准 $($asrBefore.Ms) ms → 并发后 $($asrAfter.Ms) ms（劣化 $degrade%）"
-    Add-Line '- 判据：ASR P95 劣化 ≤20% 且零 5xx；字幕链路优先，核验请求须走有界队列与熔断'
+    Add-Line "- 3×8=24 并发样本：5xx=$serverErrors，超时=$timeoutCount，P95=${p95Ms}ms（embedding 单次预算 ≤3000ms，§10.2）"
+    Add-Line "- ASR 基准 $($asrBefore.Ms) ms → 并发后 $($asrAfter.Ms) ms（劣化 $degrade%）"
+    Add-Line '- 判据：P95 ≤3000ms 且 ASR P95 劣化 ≤20% 且零 5xx/超时；字幕链路优先，核验走有界队列与熔断'
   } else {
     Add-Line '## G0-c 并发容量：不适用（G0-a 未通过，端点不存在）'
   }
