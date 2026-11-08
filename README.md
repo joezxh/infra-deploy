@@ -1,275 +1,41 @@
-# mediation-deploy
+# 部署向导 (README)
 
-矛盾纠纷调解平台部署脚本和配置文件
+本文件描述**当前需要部署的基础设施底座**，以及面向 AI 会议能力的 4 个独立部署件（LiveKit / PP-OCRv6 / CompreFace / SER）的部署方法。
 
-## 需求目标
-
-### 解决的问题
-
-调解平台在引入大语言模型（LLM）辅助调解工作时，面临以下核心挑战：
-
-1. **AI 输出不可控**：LLM 可能自由生成法律条文、编造法条引用，输出的法律依据无从验证
-2. **多 Agent 协作混乱**：缺乏统一的编排机制，多个 Agent 之间无法有效通信、协同工作
-3. **缺乏评测手段**：无法量化评估 AI 辅助调解的质量，无法检测模型更新后的能力回退
-4. **领域知识污染**：Skill 描述被随意修改，Agent 行为逐渐偏离设计初衷
-5. **上下文膨胀**：长会话导致 Token 消耗剧增，LLM 推理质量下降
-6. **推理过程黑盒**：无法追溯 AI 的推理过程，出了问题难以定位根因
-
-Mediation Harness Module 正是为解决这些问题而设计的**AI 能力评测与编排执行核心模块**。
-
-### 核心功能
-
-| 功能 | 说明 |
-|------|------|
-| **多 Agent 编排** | 6 种专业 Agent 角色（总指挥、法律顾问、情感监控、类案推荐、协议起草、调解策略），支持 Supervisor 主导的意图分类与动态路由 |
-| **ReAct 推理引擎** | Think → Act → Lint → Observe 四阶段推理循环，每步输出均经过约束检查 |
-| **领域约束引擎** | 5 条调解领域不变式（法条来源/人身安全/协议审核/数据隔离/禁止自由生成），违反即拒绝执行 |
-| **Benchmark 评测** | AI 能力回归评测，支持 accuracy / F1 / rouge-l / bert-score 指标，对比基线版本检测回退 |
-| **熵管理** | 每日定期扫描 Skill drift / Trace entropy / Fragment pattern 三类漂移，超阈值告警 |
-| **上下文压缩** | 基于 Token 预算的三阶段智能压缩（截断 episodes → 生成摘要 → 截断实体描述） |
-| **全链路追踪** | 分布式 Trace 记录，每步推理的 think/act/lint 结果均可追溯 |
-
-### 使用场景
-
-```
-场景 1：调解会话 AI 辅助
-  当事人来询 → Supervisor 意图分类 → 路由到对应 Agent → ReAct 推理 → Lint 检查 → 流式响应
-
-场景 2：协议起草
-  调解员发起起草请求 → 检索法律条文（来自 legal_provisions 表）→ 检索类案 → 生成草案
-  → Lint 检查（必须标记 requires_review=true）→ 调解员审核 → 发送当事人
-
-场景 3：情感风险预警
-  会话中检测到情绪失控 → SENTIMENT_MONITOR 分析 → 风险评分 > 0.7 → 触发转人工工单
-  → 调解员工作台收到通知 → 接管会话
-
-场景 4：AI 能力回归检测
-  模型更新后 → 触发 Benchmark 评测 → 加载评测数据集 → 执行全部样本
-  → 计算指标并对比基线 → 检测回归 → 超阈值则告警
-
-场景 5：每日系统健康检查
-  凌晨 2:00 自动执行熵扫描 → 检测 Skill drift / Trace entropy / Fragment pattern
-  → 计算漂移总分 → 超过阈值 10.0 → 发送告警通知
-```
+基础设施 = 数据库 / 缓存 / 配置中心 / 图数据库 / 对象存储 等共享依赖；AI 能力组件为解耦的独立 Docker Compose 部署件。两者均通过一键脚本部署。业务应用（`app/`）的部署请查阅 `app/` 目录自己的 README。
 
 ---
 
-## 概念解析
+## 一、部署向导（先选后跑）
 
-### 1. Agent 角色体系
+按下面三步决定你要启动的版本，然后直接复制最后一步的命令即可。
 
-Harness 采用 **Supervisor + SubAgent** 的层级架构：
+### 第 1 步：选主数据库
 
-```
-SUPERVISOR（调解总指挥）
-    ├── LEGAL_ADVISOR（法律顾问）
-    ├── SENTIMENT_MONITOR（情感监控）
-    ├── SIMILAR_CASE（类案推荐）
-    ├── PROTOCOL_DRAFTER（协议起草）
-    └── MEDIATION_STRATEGIST（调解策略）
-```
+| 主数据库 | 适用场景 | 版本 |
+|----------|----------|------|
+| **MySQL 8.4** | 传统关系型业务，成熟稳定 | `mysql-*` |
+| **PostgreSQL 17 + pgvector** | 需要向量检索（AI 场景） | `pg-*` |
 
-- **Supervisor**：入口 Agent，负责意图分类（`legal_consultation` / `sentiment_concern` / `case_analysis` / `protocol_draft` / `general`）并路由到对应 SubAgent
-- **SubAgent**：专业 Agent，各自负责特定领域，通过 AgentMessageBus 与 Supervisor 及其他 Agent 通信
+### 第 2 步：选图数据库（可选）
 
-### 2. 三种执行模式
+| 图数据库 | 适用场景 | 版本后缀 |
+|----------|----------|----------|
+| **Neo4j 5.22** | 关系图谱，社区版开箱即用 | `*-neo4j` |
+| **NebulaGraph 3.8** | 大规模图数据分析 | `*-nebula` |
 
-| 模式 | 本质 | 与 LLM 的关系 | 适用场景 |
-|------|------|-------------|---------|
-| **skill** | 确定性任务执行 | 调用 Skill instruction，不走推理循环 | 法律检索、情感监控、类案推荐 |
-| **react** | 推理循环 | LLM 主导决策，每步通过 Lint 检查 | 复杂对话、多轮推理、意图分类 |
-| **workflow** | 预定义流程 | 管道式执行，各阶段有序串联 | 协议起草（legal-search → similar-case → draft → review） |
+> 不需要图能力的环境可只保留主数据库，去掉图数据库组件（见各版本 README）。
 
-三种模式的选路由 Supervisor 根据意图类型自动决定。
+### 第 3 步：选部署模式
 
-### 3. 领域不变式
+| 模式 | 适用 | 目录 |
+|------|------|------|
+| **single（单机）** | 开发 / 测试 / 单机生产 | `.../single` |
+| **ha（高可用）** | 生产集群，含负载均衡冗余 | `.../ha` |
 
-**不变式（Invariant）** 是 Agent 行为必须始终满足的**硬约束**，违反则拒绝执行。这与 LLM 的"软提示"（soft prompting）形成对比——不变式是机械化的、不可绕过的规则。
+### 一键命令表（按选择查表执行）
 
-```
-不变式 1：法律条文不变式
-  Agent 不得自行生成法律条文，所有引用必须来自 legal_provisions 表
-
-不变式 2：人身安全不变式
-  涉及人身伤害的建议必须转人工调解员
-
-不变式 3：审核不变式
-  协议草稿在发送前必须经过调解员审核（requires_review=true）
-
-不变式 4：数据隔离不变式
-  当事人只能看到自己的案件，不能跨当事人访问
-
-不变式 5：禁止自由生成不变式
-  禁止在回复中出现"《某某法》第N条"格式的法条引用
-```
-
-### 4. ReAct 推理循环
-
-ReAct（Reasoning + Acting）是一种将推理与行动交替进行的范式。Harness 在标准 ReAct 基础上增加了 **Lint 阶段**，形成四阶段循环：
-
-```
-Think: LLM 分析当前状态，决定下一步行动（不执行，只推理）
-   │
-   ▼
-Act: 执行选定的 Action（search_case / search_law / analyze_sentiment 等）
-   │
-   ▼
-Lint: MediationLinter 检查输出是否符合 5 条不变式
-   │
-   ├─ 通过 → Observe 记录，进入下一轮循环
-   └─ 失败 → 停止循环，返回修复指令
-   │
-   ▼
-Observe: 记录本步结果，进入下一轮循环
-```
-
-Lint 阶段的引入是关键创新——它将约束检查嵌入推理循环内部，而不是事后检查，确保 Agent 在每一步都受到约束。
-
-### 5. 熵管理
-
-熵（Entropy）衡量 AI 系统的不确定性或混乱程度。熵管理是 Harness 的**垃圾回收机制**（每日凌晨执行），扫描三类漂移：
-
-- **Skill drift**：Skill instruction 中被内嵌了具体法条内容（应只引用，不内嵌）
-- **Trace entropy**：Trace 中自由生成内容过多（应从工具获取，不应自由发挥）
-- **Fragment pattern**：同一 Skill 被不同 Agent 以不同方式调用（行为碎片化）
-
-熵管理**只检测和告警，不自动修复**——修复需要人工介入，这遵循了"Human time is scarcest resource"的核心原则。
-
-### 6. Benchmark 评测
-
-Benchmark 是 Harness 的**质量守护者**，在模型更新、Prompt 调整、Skill 变更后自动运行，防止能力回退。评测结果包含：
-
-- **通过率**：`passedSamples / totalSamples`，通过阈值 60%
-- **回归检测**：对比基线版本的指标变化，回归阈值 5%
-- **百分位统计**：mean / p50 / p95 / p99，全面反映性能分布
-
----
-
-## 技术架构与设计思路
-
-### 架构总览
-
-Harness 采用 **Spring Boot 微服务架构**，分为 `harness-api`（接口层）和 `harness-server`（实现层）两个子模块：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    mediation-harness-module                   │
-│                                                             │
-│  ┌──────────────────────┐   ┌──────────────────────────┐  │
-│  │  harness-api         │   │  harness-server          │  │
-│  │  (接口 + DTO)        │   │  (核心实现)              │  │
-│  │                      │   │                          │  │
-│  │  • HarnessApi Feign  │◄──│  • Controller           │  │
-│  │  • Request/Response  │   │  • Engine               │  │
-│  │  • AgentRole         │   │  • Agent                │  │
-│  │  • Benchmark         │   │  • Context              │  │
-│  │  • Lint              │   │  • Benchmark            │  │
-│  │  • Entropy           │   │  • Entropy              │  │
-│  └──────────────────────┘   │  • Messaging             │  │
-│                              │  • Model                 │  │
-│                              │  • Rules                 │  │
-│                              │  • Observability         │  │
-│                              └──────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 核心设计思路
-
-#### 1. 约束优先于能力（Constraints First）
-
-Harness 的首要设计原则不是"让 AI 能做什么"，而是"**AI 不能做什么**"。5 条不变式通过 `MediationLinter` 在推理循环的每一步强制执行。这意味着即使 LLM 模型能力很强，只要它违反不变式，输出就会被拒绝。
-
-#### 2. Human-in-the-Loop
-
-系统始终坚持"Human time is scarcest resource"原则，只在最高杠杆点让人类介入：
-
-| 场景 | AI 自主决策 | 人类必须介入 |
-|------|:-----------:|:-----------:|
-| 争议焦点分析 | ✅ | — |
-| 法律条文检索 | ✅ | — |
-| 情感分析 | ✅ | — |
-| 协议起草 | 起草 | ✅ 审核 |
-| 通知发送 | — | ✅ 确认 |
-| 转人工判断 | 建议 | ✅ 最终决定 |
-| 涉及人身安全 | 识别 | ✅ 处理 |
-
-#### 3. 可观测性内建
-
-可观测性不是事后添加的，而是从一开始就内建于架构中：
-
-- **Tracing**：每一步推理（Think/Act/Lint/Observe）都有独立 Trace 记录
-- **Metrics**：Prometheus 格式指标（执行次数、耗时分布、Lint 失败率、转人工次数）
-- **熵报告**：每日定期的系统健康扫描
-
-#### 4. 多层抽象分离
-
-```
-┌──────────────────────────────────────────────┐
-│  Controller 层（HarnessApiController）        │  ← HTTP/Feign 入口
-├──────────────────────────────────────────────┤
-│  Engine 层（MediationHarnessEngine）          │  ← 统一编排入口
-│    ├── skill mode                            │
-│    ├── react mode (ReActLoop)                │
-│    └── workflow mode (WorkflowEngine)        │
-├──────────────────────────────────────────────┤
-│  Agent 层（Supervisor + 5× SubAgent）        │  ← 业务逻辑
-├──────────────────────────────────────────────┤
-│  约束层（MediationLinter）                   │  ← 领域不变式
-├──────────────────────────────────────────────┤
-│  工具层（mediation-ai-module 工具组件）       │  ← CaseQueryTool 等
-├──────────────────────────────────────────────┤
-│  LLM 层（Spring AI + DashScope）             │  ← 模型调用
-└──────────────────────────────────────────────┘
-```
-
-每层只关注自己的职责，上层依赖下层，下层不感知上层。这种分层确保了系统的可测试性和可维护性。
-
-#### 5. 离线评测与在线执行的一致性
-
-Harness 的一个关键设计目标是在评测环境和生产环境中使用**完全相同的执行引擎**（ReActLoop、MediationLinter、Agent 等）。这确保了评测结果能真实反映生产环境的实际表现，避免"评测时正常、生产时出问题"的悖论。
-
-#### 6. 上下文管理的 Token 感知
-
-Context Lake 通过 `ContextBlockAssembler` 聚合多种上下文来源，在 `ContextCompressor` 中通过 Token 计数感知上下文膨胀，并按三阶段策略压缩：
-
-```
-阶段 1: Trim episodes      （保留最近 20 条消息）
-         ↓ 超阈值
-阶段 2: Generate summary   （LLM 生成摘要替换 episodes）
-         ↓ 仍超阈值
-阶段 3: Truncate entities  （截断实体描述至 200 字符）
-```
-
-这种渐进式压缩策略比直接截断更好地保留了上下文的核心信息。
-
-#### 7. 多模型动态路由
-
-`ModelSelector` + `LlmLoadBalancer` 实现了按场景选择最优模型的能力：
-
-- **复杂法律推理** → qwen-max（高质量，低延迟可接受）
-- **快速分类** → qwen-plus（速度快，质量足够）
-- **长文本摘要** → claude-3-5-sonnet（长上下文能力强）
-- **成本敏感** → deepseek-chat（成本低）
-- **离线场景** → ollama/qwen2.5（无需外网）
-
-熔断器（50% 错误率触发，60 秒恢复）确保单模型故障不会导致整个系统不可用。
-
----
-
-## 部署版本选择
-
-本项目提供 **4 种基础设施部署版本**，涵盖单机版和高可用集群:
-
-| 版本 | 数据库 | 图数据库 | 适用场景 |
-|------|--------|----------|----------|
-| **mysql-neo4j** | MySQL 8.4 | Neo4j 5.22 | 传统业务，成熟稳定 |
-| **mysql-nebula** | MySQL 8.4 | NebulaGraph 3.8 | 大规模图数据 |
-| **pg-neo4j** | PostgreSQL 17 | Neo4j 5.22 | 需要向量检索 |
-| **pg-nebula** | PostgreSQL 17 | NebulaGraph 3.8 | AI + 大规模图计算 |
-
-## 快速开始
-
-### 单机版 (开发/测试)
+**单机版**
 
 ```bash
 # MySQL + Neo4j
@@ -281,11 +47,11 @@ cd infra/versions/mysql-nebula/single && ./start.sh
 # PostgreSQL + Neo4j
 cd infra/versions/pg-neo4j/single && ./start.sh
 
-# PostgreSQL + NebulaGraph (推荐 AI 场景)
+# PostgreSQL + NebulaGraph（推荐 AI 场景）
 cd infra/versions/pg-nebula/single && ./start.sh
 ```
 
-### 高可用集群 (生产环境)
+**高可用集群版**
 
 ```bash
 # MySQL + Neo4j HA
@@ -301,54 +67,58 @@ cd infra/versions/pg-neo4j/ha && ./start.sh
 cd infra/versions/pg-nebula/ha && ./start.sh
 ```
 
-## 版本详情
+选择示例：开发联调、需要向量检索 → 选 **PostgreSQL + Neo4j + 单机** → 执行 `cd infra/versions/pg-neo4j/single && ./start.sh`。
 
-### mysql-neo4j
+---
 
-- **组件**: MySQL 8.4 + Redis 7.4 + Nacos 3.2.1 + Neo4j 5.22 + MinIO
-- **特点**: 成熟稳定的传统架构
-- **单机版 README**: [versions/mysql-neo4j/single/README.md](infra/versions/mysql-neo4j/single/README.md)
-- **高可用版 README**: [versions/mysql-neo4j/ha/README.md](infra/versions/mysql-neo4j/ha/README.md)
+## 二、可部署版本总览
 
-### mysql-nebula
+| 版本 | 主数据库 | 图数据库 | 适用场景 |
+|------|----------|----------|----------|
+| **mysql-neo4j** | MySQL 8.4 | Neo4j 5.22 | 传统业务，成熟稳定 |
+| **mysql-nebula** | MySQL 8.4 | NebulaGraph 3.8 | 大规模图数据 |
+| **pg-neo4j** | PostgreSQL 17 + pgvector | Neo4j 5.22 | 需要向量检索 |
+| **pg-nebula** | PostgreSQL 17 + pgvector | NebulaGraph 3.8 | AI + 大规模图计算 |
 
-- **组件**: MySQL 8.4 + Redis 7.4 + Nacos 3.2.1 + NebulaGraph 3.8 + MinIO
-- **特点**: MySQL 业务数据 + NebulaGraph 大规模图分析
-- **单机版 README**: [versions/mysql-nebula/single/README.md](infra/versions/mysql-nebula/single/README.md)
-- **高可用版 README**: [versions/mysql-nebula/ha/README.md](infra/versions/mysql-nebula/ha/README.md)
+每个版本下均含 `single/` 与 `ha/` 两个子目录，各自带 `docker-compose.yml`、`start.sh`、建库 SQL 与 README。
 
-### pg-neo4j
+### 各版本组件清单
 
-- **组件**: PostgreSQL 17 (pgvector) + Redis 7.4 + Nacos 3.2.1 + Neo4j 5.22 + MinIO
-- **特点**: 支持向量检索 + 图关系分析
-- **单机版 README**: [versions/pg-neo4j/single/README.md](infra/versions/pg-neo4j/single/README.md)
-- **高可用版 README**: [versions/pg-neo4j/ha/README.md](infra/versions/pg-neo4j/ha/README.md)
+| 版本 | 组件 | 特点 |
+|------|------|------|
+| mysql-neo4j | MySQL 8.4 + Redis 7.4 + Nacos 3.2.1 + Neo4j 5.22 + MinIO | 成熟稳定的传统架构 |
+| mysql-nebula | MySQL 8.4 + Redis 7.4 + Nacos 3.2.1 + NebulaGraph 3.8 + MinIO | MySQL 业务 + NebulaGraph 大规模图分析 |
+| pg-neo4j | PostgreSQL 17 (pgvector) + Redis 7.4 + Nacos 3.2.1 + Neo4j 5.22 + MinIO | 向量检索 + 图关系分析 |
+| pg-nebula | PostgreSQL 17 (pgvector) + Redis 7.4 + Nacos 3.2.1 + NebulaGraph 3.8 + MinIO | 全功能 AI + 图计算平台 |
 
-### pg-nebula
+各版本详细文档：
+- [mysql-neo4j 单机](infra/versions/mysql-neo4j/single/README.md) / [HA](infra/versions/mysql-neo4j/ha/README.md)
+- [mysql-nebula 单机](infra/versions/mysql-nebula/single/README.md) / [HA](infra/versions/mysql-nebula/ha/README.md)
+- [pg-neo4j 单机](infra/versions/pg-neo4j/single/README.md) / [HA](infra/versions/pg-neo4j/ha/README.md)
+- [pg-nebula 单机](infra/versions/pg-nebula/single/README.md) / [HA](infra/versions/pg-nebula/ha/README.md)
 
-- **组件**: PostgreSQL 17 (pgvector) + Redis 7.4 + Nacos 3.2.1 + NebulaGraph 3.8 + MinIO
-- **特点**: 全功能 AI + 图计算平台
-- **单机版 README**: [versions/pg-nebula/single/README.md](infra/versions/pg-nebula/single/README.md)
-- **高可用版 README**: [versions/pg-nebula/ha/README.md](infra/versions/pg-nebula/ha/README.md)
+---
 
-## 基础设施组件
+## 三、基础设施组件
 
 | 组件 | 版本 | 用途 |
 |------|------|------|
-| MySQL | 8.4.0 | 主关系数据库 (mysql 版本) |
-| PostgreSQL | 17 + pgvector | 主数据库 + 向量存储 (pg 版本) |
+| MySQL | 8.4.0 | 主关系数据库（mysql 版本） |
+| PostgreSQL | 17 + pgvector | 主数据库 + 向量存储（pg 版本） |
 | Redis | 7.4 | 缓存 / Session |
 | Nacos | 3.2.1 | 配置中心 + 服务注册 |
-| Neo4j | 5.22 社区版 | 图数据库 (关系图谱) |
-| NebulaGraph | 3.8.0 社区版 | 图数据库 (大规模图分析) |
+| Neo4j | 5.22 社区版 | 图数据库（关系图谱） |
+| NebulaGraph | 3.8.0 社区版 | 图数据库（大规模图分析） |
 | MinIO | Latest | 对象存储 |
 
-## 服务端口
+---
+
+## 四、服务端口
 
 ### 单机版
 
 | 服务 | MySQL 版本 | PostgreSQL 版本 | 凭证 |
-|------|-----------|----------------|------|
+|------|------------|----------------|------|
 | MySQL | 3306 | - | root / mediation123 |
 | PostgreSQL | - | 5432 | mediation / mediation123 |
 | Redis | 6379 | 6379 | 无 |
@@ -366,26 +136,28 @@ cd infra/versions/pg-nebula/ha && ./start.sh
 | PostgreSQL | 5435 | 通过 PgBouncer |
 | Redis | 6379 | Sentinel 自动故障转移 |
 | Redis Sentinel | 26379 | - |
-| Nacos | 8848/8858/8868 | 3节点集群 |
-| Neo4j HAProxy | 7689/7476 | 2节点负载均衡 |
+| Nacos | 8848/8858/8868 | 3 节点集群 |
+| Neo4j HAProxy | 7689/7476 | 2 节点负载均衡 |
 | NebulaGraph | 9669/9670 | 2 Graph 节点 |
 | HAProxy Admin | 8404 | admin / admin |
 
-## 系统要求
+---
+
+## 五、系统要求
 
 ### 单机版
-
 - CPU: 4 核心
 - 内存: 8 GB
 - 磁盘: 50 GB
 
 ### 高可用集群
-
 - CPU: 8 核心
 - 内存: 16 GB
 - 磁盘: 100 GB
 
-## 默认凭证
+---
+
+## 六、默认凭证
 
 > **生产环境请务必修改默认密码！**
 
@@ -398,193 +170,9 @@ cd infra/versions/pg-nebula/ha && ./start.sh
 | Neo4j | neo4j | mediation123 |
 | MinIO | mediation | mediation123456 |
 
-## 目录结构
-
-```
-mediation-deploy/
-├── README.md                      # 本文件
-├── docker-compose.dev.yml          # 开发环境配置 (旧)
-│
-├── infra/                         # 基础设施部署（共享底座）
-│   ├── README.md                  # 基础设施文档
-│   ├── start-mysql.sh / start-pg.sh   # 单机 MySQL / PostgreSQL 启动
-│   ├── stop-all.sh                    # 停止所有单机版服务
-│   ├── backup.sh                      # 全量备份 (MySQL/PG/Redis/Neo4j/Nebula/MinIO)
-│   ├── check-health.sh                # 基础设施健康检查
-│   ├── docker-compat.sh               # docker compose V1/V2 兼容封装
-│   ├── docker-compose.mysql.single.yml
-│   ├── docker-compose.pg.single.yml
-│   ├── haproxy-mysql.cfg
-│   └── versions/                  # 版本化部署配置
-│       ├── mysql-neo4j/{single,ha}/   # 各含 docker-compose.yml / start.sh / backup*.sh / README.md / 建库 SQL
-│       ├── mysql-nebula/{single,ha}/
-│       ├── pg-neo4j/{single,ha}/
-│       └── pg-nebula/{single,ha}/
-│
-├── app/                           # 业务微服务部署
-│   ├── scripts/                   # start/stop/check-health (.sh + .bat)
-│   └── versions/                  # 4 版本 × {single,ha}
-│
-├── scripts/                       # 通用脚本
-│   └── db/                        # Flyway 数据库迁移脚本 (V2026xxxx__*.sql)
-│
-├── livekit/                       # LiveKit 视频会议 SFU（7880/7881/7882）
-├── paddle/                        # PP-OCRv6 文本识别（Nginx :80 对外，OCR 容器内 8011）
-├── compreface/                    # CompreFace 人脸 1:1 比对（8050 对外 / 8051 回环 UI）
-├── ser/                           # emotion2vec 声学情感识别（8020 对外 / 8021 容器）
-└── tools/                         # 运维 / 评测脚本
-    ├── e2e/                       # 端到端人脸核验脚本 (face-verify-e2e.js)
-    ├── g01/                       # G0/G1 门禁取证 (g0-check-log.ps1 / g1-eval-frames.ps1)
-    ├── uaa-restart/               # UAA 重启日志
-    ├── voiceprint/                # 声纹探针 (g0-probe.ps1)
-    └── rotate-login-key.ps1       # 登录密钥轮换
-```
-
-> 说明：除 `infra` 与 `app` 外，`livekit` / `paddle` / `compreface` / `ser` 为面向「AI 会议能力」（SP-3 人像核验 / SP-4 声学情感 / SP-5 证件 OCR）的独立部署件；它们彼此解耦、各自带 README 与一键脚本。`tools/` 提供门禁取证、E2E、密钥轮换等运维辅助。详见下方「AI 能力与运维组件部署」。
-
-## 常见问题
-
-### Q: 如何选择版本?
-
-- 传统业务系统: **mysql-neo4j**
-- 需要 AI 向量检索: **pg-neo4j** 或 **pg-nebula**
-- 大规模图数据分析: **mysql-nebula** 或 **pg-nebula**
-- 综合 AI + 图计算: **pg-nebula**
-
-### Q: Neo4j 社区版如何实现高可用?
-
-Neo4j 社区版不支持原生集群，本方案采用:
-1. 部署 2 个 Neo4j 实例
-2. 使用 HAProxy 负载均衡
-3. 通过备份恢复实现数据冗余
-
-### Q: 如何扩展 NebulaGraph 集群?
-
-NebulaGraph 支持在线扩容:
-```bash
-docker compose scale nebula-storaged=5
-docker compose scale nebula-graphd=3
-```
-
-## 相关文档
-
-- [基础设施部署文档](infra/README.md)
-- [各版本详细文档](infra/versions/)
-
-## 应用部署 (app)
-
-本项目还包括微服务应用的 Docker 部署脚本。
-
-### 目录结构
-
-```
-app/
-├── versions/                    # 应用部署版本
-│   ├── mysql-neo4j/            # MySQL + Neo4j 版本
-│   │   ├── single/            # 单机版
-│   │   └── ha/                # 高可用版
-│   ├── mysql-nebula/           # MySQL + NebulaGraph 版本
-│   │   ├── single/
-│   │   └── ha/
-│   ├── pg-neo4j/              # PostgreSQL + Neo4j 版本
-│   │   ├── single/
-│   │   └── ha/
-│   └── pg-nebula/             # PostgreSQL + NebulaGraph 版本
-│       ├── single/
-│       └── ha/
-└── scripts/                    # 公共脚本
-    ├── start.sh / start.bat
-    ├── stop.sh / stop.bat
-    └── check-health.sh / check-health.bat
-```
-
-### 快速启动应用服务
-
-> **注意**: 应用服务依赖基础设施服务，请先启动 `infra` 再启动 `app`。
-
-#### 1. 启动基础设施
-
-```bash
-# 选择版本启动基础设施 (以 mysql-neo4j 单机版为例)
-cd infra/versions/mysql-neo4j/single && ./start.sh
-```
-
-#### 2. 启动应用服务
-
-```bash
-# 返回 app 目录
-cd ../../app
-
-# 启动应用 (使用相同的版本参数)
-./scripts/start.sh mysql-neo4j single
-```
-
-#### 3. 验证服务
-
-```bash
-# 检查健康状态
-./scripts/check-health.sh mysql-neo4j single
-```
-
-### 应用服务列表
-
-| 服务 | 端口 | 描述 |
-|------|------|------|
-| Gateway | 8080 | API 网关 |
-| UAA | 8081 | 认证服务 |
-| System | 8082 | 系统服务 |
-| Case | 8084 | 案件服务 |
-| Mediation | 8085 | 调解服务 |
-| AI | 8086 | AI 服务 |
-| Harness | 8091 | Agent 编排 |
-| Auxiliary | 8089 | 辅助服务 |
-| Video | 8090 | 视频服务 |
-| Dispatch | 8093 | 派发服务 |
-| Content | 8094 | 内容服务 |
-| Web | 80 | Web 控制台 |
-
-### 部署版本对应关系
-
-| 应用版本 | 基础设施版本 | 说明 |
-|----------|-------------|------|
-| mysql-neo4j | mysql-neo4j | MySQL + Neo4j，通用业务 |
-| mysql-nebula | mysql-nebula | MySQL + NebulaGraph，大规模图 |
-| pg-neo4j | pg-neo4j | PostgreSQL + Neo4j，向量检索 |
-| pg-nebula | pg-nebula | PostgreSQL + NebulaGraph，完整AI栈 |
-
-### 各版本详细文档
-
-- [mysql-neo4j 单机版](app/versions/mysql-neo4j/single/README.md)
-- [mysql-neo4j 高可用版](app/versions/mysql-neo4j/ha/README.md)
-- [mysql-nebula 单机版](app/versions/mysql-nebula/single/README.md)
-- [mysql-nebula 高可用版](app/versions/mysql-nebula/ha/README.md)
-- [pg-neo4j 单机版](app/versions/pg-neo4j/single/README.md)
-- [pg-neo4j 高可用版](app/versions/pg-neo4j/ha/README.md)
-- [pg-nebula 单机版](app/versions/pg-nebula/single/README.md)
-- [pg-nebula 高可用版](app/versions/pg-nebula/ha/README.md)
-
 ---
 
-# AI 能力与运维组件部署
-
-除 `infra`（共享底座）与 `app`（业务微服务）外，本仓库还包含面向「AI 会议能力」的独立部署件与通用运维脚本。它们均为 Docker Compose + PowerShell/Bash 一键脚本，彼此解耦、各自自带 README，**默认不接入业务链路**，多数带上线门禁开关。
-
-## 组件总览
-
-| 目录 | 部署件 | 用途 | 对外端口 | 文档 |
-|------|--------|------|----------|------|
-| `infra/` | 基础设施底座 | MySQL/PG/Redis/Nacos/Neo4j/Nebula/MinIO | 见上文 | [infra/README.md](infra/README.md) |
-| `app/` | 业务微服务 | Gateway/UAA/System/Case/Mediation/AI/… | 见上文 | [app 各版本 README](app/versions/) |
-| `scripts/db/` | 数据库迁移 | Flyway 增量脚本 | — | 见下 |
-| `livekit/` | 视频会议 SFU | 会议音视频信令/媒体 | 7880/tcp·7881/udp·7882/tcp | [livekit/README.md](livekit/README.md) |
-| `paddle/` | PP-OCRv6 文本识别 | 证件/材料 OCR | 80 (Nginx) | [paddle/README.md](paddle/README.md) |
-| `compreface/` | 人脸 1:1 比对 | 人像到场一致性核验 | 8050 / 8051(回环) | [compreface/README.md](compreface/README.md) |
-| `ser/` | 声学情感识别 | 会议情绪识别 | 8020 / 8021 | [ser/README.md](ser/README.md) |
-| `tools/` | 运维/评测 | 门禁取证、E2E、密钥轮换 | — | 见下 |
-
-> 端口避让（同一宿主）：OCR `8011`、SER `8020/8021`、`paddle-nginx` `8080`、LiveKit `7880/7881/7882`、CompreFace `8050/8051`、`80`（GPUStack 已占）。
-
-## 基础设施顶层脚本（infra/）
+## 七、顶层脚本速查（infra/）
 
 | 脚本 | 作用 | 常用命令 |
 |------|------|----------|
@@ -595,32 +183,59 @@ cd ../../app
 | `check-health.sh` | 逐项探活（MySQL/PG/Redis/Nacos/Neo4j/MinIO）并汇总 | `cd infra && ./check-health.sh` |
 | `docker-compat.sh` | 检测 `docker compose` V1/V2 并设置 `DOCKER_API_VERSION=1.44`，其它脚本 `source` 它 | — |
 
-各子版本（如 `infra/versions/mysql-neo4j/single/`）另带自己的 `start.sh`、`backup*.sh` 与建库 SQL，详见 [infra/README.md](infra/README.md)。
+---
 
-## 应用服务脚本（app/scripts/）
+## 八、目录结构
 
-`app/scripts/` 提供跨版本的 `start.sh` / `start.bat` / `stop.sh` / `stop.bat` / `check-health.sh` / `check-health.bat`，用法：
-
-```bash
-./app/scripts/start.sh mysql-neo4j single      # 启动指定版本/模式
-./app/scripts/check-health.sh mysql-neo4j single
+```
+infra-deploy/
+├── README.md                     # 本文件
+├── infra/                        # 基础设施部署（共享底座）
+│   ├── README.md                 # 基础设施详细文档
+│   ├── start-mysql.sh / start-pg.sh
+│   ├── stop-all.sh
+│   ├── backup.sh
+│   ├── check-health.sh
+│   ├── docker-compat.sh
+│   ├── docker-compose.mysql.single.yml
+│   ├── docker-compose.pg.single.yml
+│   ├── haproxy-mysql.cfg
+│   └── versions/                 # 版本化部署配置
+│       ├── mysql-neo4j/{single,ha}/
+│       ├── mysql-nebula/{single,ha}/
+│       ├── pg-neo4j/{single,ha}/
+│       └── pg-nebula/{single,ha}/
+└── scripts/db/                   # Flyway 数据库迁移脚本 (V2026xxxx__*.sql)
 ```
 
-脚本会检查 `mediation-infra-network` 与必要端口（8848/3306/5432/6379），准备 `.env`，创建 `mediation-app-network` 与日志目录后 `docker compose up -d`。
+---
 
-## 数据库迁移脚本（scripts/db/）
+## 九、AI 能力组件部署（livekit / paddle / compreface / ser）
 
-Flyway 风格增量迁移，按版本号顺序执行：
+以下 4 个为面向「AI 会议能力」的独立部署件，均为 Docker Compose + 一键脚本，彼此解耦、各自带 README；**默认不接入业务链路**，多数带上线门禁开关（详见各目录 README）。
 
-| 文件 | 作用 |
-|------|------|
-| `V20260718__add_opc_support_to_tenant_package.sql` | 租户套餐加 OPC 支持 |
-| `V20260719__create_agent_worker_tables.sql` | 创建 Agent Worker 相关表 |
-| `V20260720__create_task_execution_tracking_tables.sql` | 创建任务执行追踪表 |
+### 组件总览
 
-## 视频会议 — livekit/
+| 目录 | 部署件 | 用途 | 对外端口 |
+|------|--------|------|----------|
+| `livekit/` | 视频会议 SFU | 会议音视频信令 / 媒体 | 7880/tcp · 7881/udp · 7882/tcp |
+| `paddle/` | PP-OCRv6 文本识别 | 证件 / 材料 OCR | 80（Nginx 反代） |
+| `compreface/` | 人脸 1:1 比对 | 人像到场一致性核验 | 8050 / 8051(回环) |
+| `ser/` | 声学情感识别 | 会议情绪识别 | 8020 / 8021 |
 
-单节点 `livekit-server` v1.13.11 SFU，供 `mediation-ai` 会议模块、`mediation-web` 房间页与 `livekit-worker` 转录服务使用。
+> 端口避让（同一宿主）：OCR `8011`、SER `8020/8021`、`paddle-nginx` `8080`、`80`（GPUStack 已占）、LiveKit `7880/7881/7882`、CompreFace `8050/8051`。
+
+### 通用部署约定
+
+- **一键脚本形态**：各组件提供 `deploy.ps1`（Windows/PowerShell）+ `deploy.sh`（Linux/WSL）或 PowerShell 专用脚本；首次运行自动从 `.env.example` 生成 `.env` 并注入随机 `API_KEY`（外层调用凭证）。
+- **鉴权**：OCR / 人脸 / 声学三类推理服务统一用 Nginx 反代 + 请求头 `X-API-Key` 鉴权（缺失/错误返回 401/403），推理容器只绑 `127.0.0.1` 防直连绕过。
+- **健康检查**：推理容器自带 `healthcheck`；对外暴露免鉴权探针（`/nginx-health`、`/ser-nginx-health`、`/face-nginx-health`）。
+- **墙内构建**：Docker daemon 若继承系统死代理（`http.docker.internal:3128`）会导致镜像/权重下载失败，需置 `ProxyEnable=0` 并重启 Docker Desktop，或配置 `registry-mirrors`；PyPI 走清华源、Docker 镜像走 DaoCloud/阿里云中转。
+- **门禁纪律**：AI 能力组件（compreface / ser / 人脸 OCR 链路）均带上线开关，未通过对应门禁前不得修改为接入业务链路。
+
+### 1. 视频会议 — livekit/
+
+单节点 `livekit-server` v1.13.11 SFU，供会议模块、`mediation-web` 房间页与 `livekit-worker` 转录服务使用。
 
 ```powershell
 cd livekit
@@ -631,7 +246,7 @@ Copy-Item .env.example .env      # 跨机部署先改 LIVEKIT_NODE_IP
 
 要点：`deploy.ps1`/`deploy.sh` 负责按 `.env` 渲染 `livekit.yaml`（LiveKit 不展开 YAML 变量）；`LIVEKIT_NODE_IP` 必须设为客户端可达 IP；`REDIS_MODE=internal|external` 可选；`GET /` 返回 200 即存活（无 `/health`）。详见 [livekit/README.md](livekit/README.md)。
 
-## 文本识别 — paddle/（PP-OCRv6）
+### 2. 文本识别 — paddle/（PP-OCRv6）
 
 PP-OCRv6 超轻量文本识别，CPU 推理、零显存，经 Nginx 反代 + `X-API-Key` 鉴权对外暴露（容器内 OCR 只绑 `127.0.0.1`）。
 
@@ -643,7 +258,7 @@ cd paddle
 
 接口：`POST http://localhost/ocr/v6/ocr`（multipart `image`）、`/ocr/v6/health`，均需 `X-API-Key`。权重在构建期烘焙进镜像（约 177MB），运行期不再联网。详见 [paddle/README.md](paddle/README.md)。
 
-## 人脸比对 — compreface/（SP-3）
+### 3. 人脸比对 — compreface/（1:1）
 
 CompreFace 自托管人脸比对（Exadel 开源自托管平台，Apache-2.0），自定义 `compreface-core` 镜像（YuNet 检测 + SFace 识别，Apache-2.0 ONNX 权重）。**仅提供 1:1 `verification` 与 `detection`**，1:N 在 nginx 层 404 拒绝；平台不建人脸底库、不持久化向量。
 
@@ -655,13 +270,9 @@ Copy-Item .env.example .env      # 或让 deploy.ps1 自动生成随机 API_KEY
 .\scripts\verify.ps1             # 9 项契约验证
 ```
 
-接口：经 `:8050` 带外层 `X-API-Key` ——
-`POST /face/api/v1/detection/detect`、`POST /face/api/v1/verification/verify`。
-双层密钥：业务侧只见外层 `API_KEY`，CompreFace 服务 key 由 nginx 按路径注入（detection 注 DET key、verification 注 VERIFY key）。数据库复用宿主 PostgreSQL（库 `compreface`）。
+接口：经 `:8050` 带外层 `X-API-Key` —— `POST /face/api/v1/detection/detect`、`POST /face/api/v1/verification/verify`。双层密钥：业务侧只见外层 `API_KEY`，CompreFace 服务 key 由 nginx 按路径注入（detection 注 DET key、verification 注 VERIFY key）。数据库复用宿主 PostgreSQL（库 `compreface`）。详见 [compreface/README.md](compreface/README.md)。
 
-> **门禁纪律**：G0–G3 未全过前 `MEETING_FACE_POC_PASSED` 恒为 `false`，不接业务链路。当前（2026-11-07）用户已人工置位 `MEETING_FACE_POC_PASSED=true` / `MEETING_G3_VIDEO=true` / `MEETING_FACE_ENABLED=true` 阈值 `0.55`（联调值，样本不足），但真人 G0/G1/G2 报告与 G3 法务/运维签字仍待补。详见 [compreface/README.md](compreface/README.md)。
-
-## 声学情感 — ser/（SP-4）
+### 4. 声学情感 — ser/
 
 `emotion2vec_plus_large` 声学情感识别，推理容器（CPU 或 GPU）＋ Nginx 反代鉴权；输出平台 5 类 `{calm,anxious,agitated,anger,threat}`，3s 全静音拒答（不降级为 `calm`）。
 
@@ -674,24 +285,32 @@ Copy-Item .env.example .env      # 或让 deploy.ps1 生成随机 API_KEY
 
 接口：经 `:8020/ser` 带 `X-API-Key` —— `POST /ser/v1/audio/emotion`（multipart `file`/`sample_rate`/`language`）、`GET /ser/health`；免鉴权探针 `/ser-nginx-health`。
 
-> 版本分支：**CPU 分支**长音频 P95 远超 1500ms（§8.4 延迟门禁 FAIL）；**GPU 分支 A**（`torch 2.7.1+cu128`、`emotion2vec:gpu-cu128`、项目名 `ser-gpu`、端口 8022/8023）预热后 P95 ≤566ms（PASS），但冷启动首轮不达标、须就绪探针预热。需 `Blackwell sm_120` 必须用 cu128。当前开关仍 `false`，未接入业务链路。详见 [ser/README.md](ser/README.md)。
+> 版本分支：**CPU 分支**长音频 P95 远超 1500ms（延迟门禁 FAIL）；**GPU 分支 A**（`torch 2.7.1+cu128`、`emotion2vec:gpu-cu128`、项目名 `ser-gpu`、端口 8022/8023）预热后 P95 ≤566ms（PASS），但冷启动首轮不达标、须就绪探针预热。需 `Blackwell sm_120` 必须用 cu128。当前开关仍 `false`，未接入业务链路。详见 [ser/README.md](ser/README.md)。
 
-## 运维 / 评测脚本 — tools/
+---
 
-| 子目录 / 脚本 | 作用 |
-|---------------|------|
-| `tools/e2e/face-verify-e2e.js` | 端到端人脸核验脚本（Node，依赖 `package.json`） |
-| `tools/g01/g0-check-log.ps1` · `g1-eval-frames.ps1` | G0/G1 门禁取证：检查 `livekit-worker` 视频轨日志、评估帧样本 |
-| `tools/voiceprint/g0-probe.ps1` | 声纹探针（G0 可用性探测） |
-| `tools/uaa-restart/` | UAA 重启日志（`uaa.out.log` / `uaa.err.log`） |
-| `tools/rotate-login-key.ps1` | 登录密钥轮换 |
+## 十、常见问题
 
-`tools/g01/README.md` 与 `tools/voiceprint/README.md` 含各自取证流程说明。
+### Q: 如何选择版本？
+- 传统业务系统：**mysql-neo4j**
+- 需要 AI 向量检索：**pg-neo4j** 或 **pg-nebula**
+- 大规模图数据分析：**mysql-nebula** 或 **pg-nebula**
+- 综合 AI + 图计算：**pg-nebula**
 
-## 通用部署约定
+### Q: Neo4j 社区版如何实现高可用？
+Neo4j 社区版不支持原生集群，本方案采用：
+1. 部署 2 个 Neo4j 实例
+2. 使用 HAProxy 负载均衡
+3. 通过备份恢复实现数据冗余
 
-- **一键脚本形态**：各组件提供 `deploy.ps1`（Windows/PowerShell）+ `deploy.sh`（Linux/WSL）或 PowerShell 专用脚本；首次运行自动从 `.env.example` 生成 `.env` 并注入随机 `API_KEY`（外层调用凭证）。
-- **鉴权**：OCR / 人脸 / 声学三类推理服务统一用 Nginx 反代 + 请求头 `X-API-Key` 鉴权（缺失/错误返回 401/403），推理容器只绑 `127.0.0.1` 防直连绕过。
-- **健康检查**：推理容器自带 `healthcheck`；对外暴露免鉴权探针（`/nginx-health`、`/ser-nginx-health`、`/face-nginx-health`）。
-- **墙内构建**：Docker daemon 若继承系统死代理（`http.docker.internal:3128`）会导致镜像/权重下载失败，需置 `ProxyEnable=0` 并重启 Docker Desktop，或配置 `registry-mirrors`；PyPI 走清华源、Docker 镜像走 DaoCloud/阿里云中转。
-- **门禁纪律**：AI 能力组件（compreface / ser / 人脸 OCR 链路）均带上线开关，未通过对应 G0–G3 门禁前不得修改开关接入业务链路。
+### Q: 如何扩展 NebulaGraph 集群？
+```bash
+docker compose scale nebula-storaged=5
+docker compose scale nebula-graphd=3
+```
+
+### Q: 启动失败 / 端口被占用？
+- 确认宿主 3306/5432/6379/8848/7474/7687/9669/9000/9001 未被占用
+- 容器出网异常（镜像/权重拉取失败）多为系统死代理导致，置 `ProxyEnable=0` 并重启 Docker Desktop，或配置 `registry-mirrors`
+
+更详细的环境变量、健康检查、备份恢复说明见 [infra/README.md](infra/README.md) 与各版本子目录 README。
