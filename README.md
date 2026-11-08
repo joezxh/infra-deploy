@@ -119,14 +119,14 @@ cd infra/versions/pg-nebula/ha && ./start.sh
 
 | 服务 | MySQL 版本 | PostgreSQL 版本 | 凭证 |
 |------|------------|----------------|------|
-| MySQL | 3306 | - | root / mediation123 |
-| PostgreSQL | - | 5432 | mediation / mediation123 |
+| MySQL | 3306 | - | root / admin123 |
+| PostgreSQL | - | 5432 | admin / admin123 |
 | Redis | 6379 | 6379 | 无 |
 | Nacos | 8848 | 8848 | nacos / nacos |
-| Neo4j HTTP | 7474 | 7474 | neo4j / mediation123 |
-| Neo4j Bolt | 7687 | 7687 | neo4j / mediation123 |
+| Neo4j HTTP | 7474 | 7474 | neo4j / admin123 |
+| Neo4j Bolt | 7687 | 7687 | neo4j / admin123 |
 | NebulaGraph | 9669 | 9669 | - |
-| MinIO Console | 9001 | 9001 | mediation / mediation123456 |
+| MinIO Console | 9001 | 9001 | admin / admin123456 |
 
 ### 高可用集群
 
@@ -163,12 +163,12 @@ cd infra/versions/pg-nebula/ha && ./start.sh
 
 | 服务 | 用户名 | 密码 |
 |------|--------|------|
-| MySQL | root | mediation123 |
-| PostgreSQL | mediation | mediation123 |
+| MySQL | root | admin123 |
+| PostgreSQL | admin | admin123 |
 | Redis | - | 无密码 |
 | Nacos | nacos | nacos |
-| Neo4j | neo4j | mediation123 |
-| MinIO | mediation | mediation123456 |
+| Neo4j | neo4j | admin123 |
+| MinIO | admin | admin123456 |
 
 ---
 
@@ -235,7 +235,7 @@ infra-deploy/
 
 ### 1. 视频会议 — livekit/
 
-单节点 `livekit-server` v1.13.11 SFU，供会议模块、`mediation-web` 房间页与 `livekit-worker` 转录服务使用。
+单节点 `livekit-server` v1.13.11 SFU，供会议模块、`admin-web` 房间页与 `livekit-worker` 转录服务使用。
 
 ```powershell
 cd livekit
